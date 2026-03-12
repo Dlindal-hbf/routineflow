@@ -481,6 +481,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
   // task lists state (each behaves like the original "Stengerutiner" list)
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
+  const [hasLoadedTaskLists, setHasLoadedTaskLists] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
 
   const loadTaskListsFromStore = (): TaskList[] => {
@@ -510,12 +511,17 @@ export default function WorkplaceRoutinesDemoStyle() {
   // load lists from localStorage or initialize empty (no prepopulated cards)
   useEffect(() => {
     setTaskLists(loadTaskListsFromStore());
+    setHasLoadedTaskLists(true);
   }, []);
 
   // persist lists
   useEffect(() => {
+    if (!hasLoadedTaskLists) {
+      return;
+    }
+
     saveLegacyTaskListsToRoutineStore(taskLists);
-  }, [taskLists]);
+  }, [hasLoadedTaskLists, taskLists]);
 
   // Run reset processing in a centralized module and hydrate updated live state.
   useEffect(() => {

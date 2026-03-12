@@ -42,18 +42,336 @@ export type LegacyTaskList = {
   tasks: LegacyTask[];
 };
 
-function readJson<T>(key: string, fallback: T): T {
+type ParsedStorageValue = {
+  raw: string | null;
+  parsed: unknown;
+  parseSucceeded: boolean;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeText(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function normalizeOptionalText(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function normalizeFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeBoundedNumber(
+  value: unknown,
+  min: number,
+  max: number
+): number | undefined {
+  const normalized = normalizeFiniteNumber(value);
+  if (normalized == null) {
+    return undefined;
+  }
+
+  if (normalized < min || normalized > max) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function normalizeRoutineFrequencyValue(
+  value: unknown,
+  autoReset = false
+): RoutineFrequency {
+  if (
+    value === "none" ||
+    value === "daily" ||
+    value === "weekly" ||
+    value === "biweekly" ||
+    value === "monthly"
+  ) {
+    return value;
+  }
+
+  return autoReset ? "daily" : "none";
+}
+
+function normalizeResetTime(value: unknown): string {
+  if (typeof value !== "string") {
+    return "06:00";
+  }
+
+  const parts = value.split(":");
+  if (parts.length !== 2) {
+    return "06:00";
+  }
+
+  const [hourRaw, minuteRaw] = parts;
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+  if (
+    !Number.isInteger(hour) ||
+    !Number.isInteger(minute) ||
+    hour < 0 ||
+    hour > 23 ||
+    minute < 0 ||
+    minute > 59
+  ) {
+    return "06:00";
+  }
+
+  return `${hourRaw.padStart(2, "0")}:${minuteRaw.padStart(2, "0")}`;
+}
+
+function parseStorageValue(key: string): ParsedStorageValue {
   try {
     const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
+    console.log(`[list-storage] raw ${key}`, raw);
+
+    if (!raw) {
+      console.log(`[list-storage] parsed ${key}`, null);
+      return { raw, parsed: null, parseSucceeded: true };
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    console.log(`[list-storage] parsed ${key}`, parsed);
+    return { raw, parsed, parseSucceeded: true };
+  } catch (error) {
+    console.warn(`[list-storage] parse failed ${key}`, error);
+    console.log(`[list-storage] parsed ${key}`, null);
+    return { raw: localStorage.getItem(key), parsed: null, parseSucceeded: false };
   }
 }
 
 function writeJson<T>(key: string, value: T): void {
+  console.log(`[list-storage] final state written back ${key}`, value);
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function syncNormalizedJson<T>(
+  key: string,
+  previousRaw: string | null,
+  value: T,
+  parseSucceeded: boolean
+): void {
+  if (!parseSucceeded) {
+    return;
+  }
+
+  const serialized = JSON.stringify(value);
+  if (previousRaw === serialized) {
+    return;
+  }
+
+  console.log(`[list-storage] final state written back ${key}`, value);
+  localStorage.setItem(key, serialized);
+}
+
+function normalizeLegacyTask(task: unknown, taskIndex: number): LegacyTask | null {
+  if (!isRecord(task)) {
+    return null;
+  }
+
+  const id = normalizeFiniteNumber(task.id) ?? taskIndex + 1;
+  return {
+    id,
+    title: normalizeText(task.title, `Task ${id}`),
+    description: normalizeText(task.description, ""),
+    completed: typeof task.completed === "boolean" ? task.completed : false,
+  };
+}
+
+function normalizeLegacyTaskLists(value: unknown): LegacyTaskList[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((list, index) => {
+    if (!isRecord(list)) {
+      return [];
+    }
+
+    const id = normalizeFiniteNumber(list.id) ?? index + 1;
+    const resetEnabled =
+      typeof list.resetEnabled === "boolean"
+        ? list.resetEnabled
+        : Boolean(list.autoReset);
+    const frequency = normalizeRoutineFrequencyValue(list.frequency, Boolean(list.autoReset));
+    const tasks = Array.isArray(list.tasks)
+      ? list.tasks
+          .map((task, taskIndex) => normalizeLegacyTask(task, taskIndex))
+          .filter((task): task is LegacyTask => task !== null)
+      : [];
+
+    return [
+      {
+        id,
+        title: normalizeText(list.title, `Untitled list ${id}`),
+        description: normalizeText(list.description, ""),
+        color: normalizeText(list.color, "red"),
+        autoReset:
+          typeof list.autoReset === "boolean"
+            ? list.autoReset
+            : frequency === "daily" && resetEnabled,
+        resetEnabled,
+        frequency,
+        resetTime: normalizeResetTime(list.resetTime),
+        resetDayOfWeek: normalizeBoundedNumber(list.resetDayOfWeek, 1, 7),
+        resetDayOfMonth: normalizeBoundedNumber(list.resetDayOfMonth, 1, 31),
+        timezone: normalizeText(list.timezone, DEFAULT_TIMEZONE),
+        currentPeriodStartAt: normalizeOptionalText(list.currentPeriodStartAt),
+        currentPeriodEndAt: normalizeOptionalText(list.currentPeriodEndAt),
+        lastArchivedAt: normalizeOptionalText(list.lastArchivedAt),
+        nextResetAt: normalizeOptionalText(list.nextResetAt),
+        tasks,
+      },
+    ];
+  });
+}
+
+function normalizeRoutineList(list: unknown, index: number): RoutineList | null {
+  if (!isRecord(list)) {
+    return null;
+  }
+
+  const id = String(normalizeText(list.id, String(index + 1)));
+  const frequency = normalizeRoutineFrequencyValue(list.frequency);
+
+  return {
+    id,
+    title: normalizeText(list.title, `Untitled list ${id}`),
+    description: normalizeText(list.description, ""),
+    color: normalizeText(list.color, "red"),
+    resetEnabled: typeof list.resetEnabled === "boolean" ? list.resetEnabled : false,
+    frequency,
+    resetTime: normalizeResetTime(list.resetTime),
+    resetDayOfWeek: normalizeBoundedNumber(list.resetDayOfWeek, 1, 7),
+    resetDayOfMonth: normalizeBoundedNumber(list.resetDayOfMonth, 1, 31),
+    timezone: normalizeText(list.timezone, DEFAULT_TIMEZONE),
+    currentPeriodStartAt: normalizeOptionalText(list.currentPeriodStartAt),
+    currentPeriodEndAt: normalizeOptionalText(list.currentPeriodEndAt),
+    lastArchivedAt: normalizeOptionalText(list.lastArchivedAt),
+    nextResetAt: normalizeOptionalText(list.nextResetAt),
+    createdAt: normalizeText(list.createdAt, new Date().toISOString()),
+    updatedAt: normalizeText(list.updatedAt, new Date().toISOString()),
+  };
+}
+
+function normalizeRoutineLists(value: unknown): RoutineList[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((list, index) => normalizeRoutineList(list, index))
+    .filter((list): list is RoutineList => list !== null);
+}
+
+function normalizeRoutineTask(
+  task: unknown,
+  index: number,
+  listIds: Set<string>
+): RoutineTask | null {
+  if (!isRecord(task)) {
+    return null;
+  }
+
+  const listId = normalizeText(task.listId);
+  if (!listIds.has(listId)) {
+    return null;
+  }
+
+  const taskId = normalizeText(task.id, `${listId}:${index + 1}`);
+
+  return {
+    id: taskId,
+    listId,
+    title: normalizeText(task.title, `Task ${index + 1}`),
+    description: normalizeText(task.description, ""),
+    sortOrder: normalizeFiniteNumber(task.sortOrder) ?? index,
+    isChecked: typeof task.isChecked === "boolean" ? task.isChecked : false,
+    createdAt: normalizeText(task.createdAt, new Date().toISOString()),
+    updatedAt: normalizeText(task.updatedAt, new Date().toISOString()),
+  };
+}
+
+function normalizeRoutineTasks(value: unknown, listIds: Set<string>): RoutineTask[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((task, index) => normalizeRoutineTask(task, index, listIds))
+    .filter((task): task is RoutineTask => task !== null);
+}
+
+function normalizeRoutineTaskHistory(value: unknown): RoutineTaskHistory[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry, index) => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+
+    const status = entry.status === "complete" || entry.status === "incomplete"
+      ? entry.status
+      : "incomplete";
+
+    return [
+      {
+        id: normalizeText(entry.id, `history-${index + 1}`),
+        listId: normalizeText(entry.listId),
+        taskId: normalizeText(entry.taskId),
+        taskTitleSnapshot: normalizeText(entry.taskTitleSnapshot, ""),
+        periodStartAt: normalizeText(entry.periodStartAt, ""),
+        periodEndAt: normalizeText(entry.periodEndAt, ""),
+        archivedAt: normalizeText(entry.archivedAt, ""),
+        status,
+      },
+    ];
+  });
+}
+
+function readNormalizedLegacyTaskLists(): LegacyTaskList[] {
+  const storage = parseStorageValue(LEGACY_LISTS_KEY);
+  const normalized = normalizeLegacyTaskLists(storage.parsed);
+  console.log(`[list-storage] normalized ${LEGACY_LISTS_KEY}`, normalized);
+  syncNormalizedJson(LEGACY_LISTS_KEY, storage.raw, normalized, storage.parseSucceeded);
+  return normalized;
+}
+
+function readNormalizedRoutineEntities(): {
+  lists: RoutineList[];
+  tasks: RoutineTask[];
+  history: RoutineTaskHistory[];
+} {
+  const listStorage = parseStorageValue(ROUTINE_LISTS_KEY);
+  const lists = normalizeRoutineLists(listStorage.parsed);
+  console.log(`[list-storage] normalized ${ROUTINE_LISTS_KEY}`, lists);
+  syncNormalizedJson(ROUTINE_LISTS_KEY, listStorage.raw, lists, listStorage.parseSucceeded);
+
+  const listIds = new Set(lists.map((list) => list.id));
+
+  const taskStorage = parseStorageValue(ROUTINE_TASKS_KEY);
+  const tasks = normalizeRoutineTasks(taskStorage.parsed, listIds);
+  console.log(`[list-storage] normalized ${ROUTINE_TASKS_KEY}`, tasks);
+  syncNormalizedJson(ROUTINE_TASKS_KEY, taskStorage.raw, tasks, taskStorage.parseSucceeded);
+
+  const historyStorage = parseStorageValue(ROUTINE_TASK_HISTORY_KEY);
+  const history = normalizeRoutineTaskHistory(historyStorage.parsed);
+  console.log(`[list-storage] normalized ${ROUTINE_TASK_HISTORY_KEY}`, history);
+  syncNormalizedJson(
+    ROUTINE_TASK_HISTORY_KEY,
+    historyStorage.raw,
+    history,
+    historyStorage.parseSucceeded
+  );
+
+  return { lists, tasks, history };
 }
 
 function toRoutineFrequency(list: LegacyTaskList): RoutineFrequency {
@@ -132,7 +450,7 @@ function hydrateFromLegacyStorage(): {
   lists: RoutineList[];
   tasks: RoutineTask[];
 } {
-  const legacyLists = readJson<LegacyTaskList[]>(LEGACY_LISTS_KEY, []);
+  const legacyLists = readNormalizedLegacyTaskLists();
   const nowIso = new Date().toISOString();
 
   const lists = legacyLists.map((list) => toRoutineList(list, nowIso));
@@ -151,11 +469,14 @@ function getRoutineEntities(): {
   tasks: RoutineTask[];
   history: RoutineTaskHistory[];
 } {
-  let lists = readJson<RoutineList[]>(ROUTINE_LISTS_KEY, []);
-  let tasks = readJson<RoutineTask[]>(ROUTINE_TASKS_KEY, []);
-  const history = readJson<RoutineTaskHistory[]>(ROUTINE_TASK_HISTORY_KEY, []);
+  let { lists, tasks, history } = readNormalizedRoutineEntities();
 
-  if (lists.length === 0 && tasks.length === 0) {
+  if (lists.length === 0) {
+    const legacyLists = readNormalizedLegacyTaskLists();
+    if (legacyLists.length === 0) {
+      return { lists, tasks, history };
+    }
+
     const hydrated = hydrateFromLegacyStorage();
     lists = hydrated.lists;
     tasks = hydrated.tasks;
@@ -221,9 +542,18 @@ export function getLegacyTaskListsWithLiveState(): LegacyTaskList[] {
 
 export function saveLegacyTaskListsToRoutineStore(lists: LegacyTaskList[]): void {
   const nowIso = new Date().toISOString();
+  const normalizedLists = normalizeLegacyTaskLists(lists);
 
-  const routineLists = lists.map((list) => {
-    const previous = readJson<RoutineList[]>(ROUTINE_LISTS_KEY, []).find(
+  console.log(`[list-storage] raw ${LEGACY_LISTS_KEY}`, lists);
+  console.log(`[list-storage] parsed ${LEGACY_LISTS_KEY}`, lists);
+  console.log(`[list-storage] normalized ${LEGACY_LISTS_KEY}`, normalizedLists);
+
+  const previousRoutineState = readNormalizedRoutineEntities();
+  const previousRoutineLists = previousRoutineState.lists;
+  const previousRoutineTasks = previousRoutineState.tasks;
+
+  const routineLists = normalizedLists.map((list) => {
+    const previous = previousRoutineLists.find(
       (candidate) => candidate.id === String(list.id)
     );
 
@@ -236,9 +566,9 @@ export function saveLegacyTaskListsToRoutineStore(lists: LegacyTaskList[]): void
     };
   });
 
-  const routineTasks = lists.flatMap((list) =>
+  const routineTasks = normalizedLists.flatMap((list) =>
     list.tasks.map((task, index) => {
-      const prevTask = readJson<RoutineTask[]>(ROUTINE_TASKS_KEY, []).find(
+      const prevTask = previousRoutineTasks.find(
         (candidate) => candidate.id === `${list.id}:${task.id}`
       );
 
@@ -257,5 +587,5 @@ export function saveLegacyTaskListsToRoutineStore(lists: LegacyTaskList[]): void
 
   writeJson(ROUTINE_LISTS_KEY, routineLists);
   writeJson(ROUTINE_TASKS_KEY, routineTasks);
-  writeJson(LEGACY_LISTS_KEY, lists);
+  writeJson(LEGACY_LISTS_KEY, normalizedLists);
 }
