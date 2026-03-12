@@ -37,6 +37,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
 import ColorPicker from "@/components/ui/ColorPicker";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
+import ResetScheduleForm, { ResetScheduleValue } from "@/src/components/ResetScheduleForm";
+import { RoutineFrequency } from "@/src/lib/scheduling/reset-types";
+import { calculateNextResetAt } from "@/src/lib/scheduling/reset-schedule";
+import {
+  getLegacyTaskListsWithLiveState,
+  processDueResetsInBrowserStorage,
+  saveLegacyTaskListsToRoutineStore,
+  DEFAULT_TIMEZONE,
+} from "@/src/lib/scheduling/browser-reset-store";
 
 type View =
   | "overview"
@@ -55,21 +64,6 @@ type LogType = "Deviation" | "Batch Tracing" | "Compensation" | "Other";
 
 // individual history record for a task
 
-type TaskRecord = {
-  date: string;
-  status: "Complete" | "Incomplete";
-  completedAt?: string;
-};
-
-// history of a single task inside a particular list
-
-type TaskListHistory = {
-  listId: number;
-  taskId: number;
-  taskTitle: string;
-  records: TaskRecord[];
-};
-
 // basic task used for routines and lists
 
 type Task = {
@@ -85,8 +79,18 @@ type Task = {
 type TaskList = {
   id: number;
   title: string;
+  description?: string;
   color?: ColorKey | string; // semantic color key (e.g. "blue") or legacy class
-  autoReset?: boolean;      // if true the list will auto–clear completed tasks daily
+  resetEnabled: boolean;
+  frequency: RoutineFrequency;
+  resetTime: string;
+  resetDayOfWeek?: number;
+  resetDayOfMonth?: number;
+  timezone: string;
+  currentPeriodStartAt?: string;
+  currentPeriodEndAt?: string;
+  lastArchivedAt?: string;
+  nextResetAt?: string;
   tasks: Task[];
 };
 
@@ -479,115 +483,48 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
 
+  const loadTaskListsFromStore = (): TaskList[] => {
+    const loaded = getLegacyTaskListsWithLiveState();
+    return loaded.map((l) => ({
+      ...l,
+      color:
+        interpretColor(l.color as string) ||
+        (l.color as string) ||
+        "red",
+    }));
+  };
+
   // load lists from localStorage or initialize empty (no prepopulated cards)
   useEffect(() => {
-    const stored = localStorage.getItem("taskLists");
-    if (stored) {
-      try {
-        const parsed: TaskList[] = JSON.parse(stored);
-        // migrate any legacy color values to semantic keys and default missing color to red
-        const converted = parsed.map((l) => ({
-          ...l,
-          color:
-            interpretColor(l.color as string) ||
-            (l.color as string) ||
-            "red",
-        }));
-        setTaskLists(converted);
-      } catch {
-        setTaskLists([]);
-      }
-    } else {
-      // start with no lists so front page remains clean
-      setTaskLists([]);
-    }
+    setTaskLists(loadTaskListsFromStore());
   }, []);
 
   // persist lists
   useEffect(() => {
-    localStorage.setItem("taskLists", JSON.stringify(taskLists));
+    saveLegacyTaskListsToRoutineStore(taskLists);
   }, [taskLists]);
 
-  // Daily reset for any lists that have autoReset enabled, plus automatic history save
+  // Run reset processing in a centralized module and hydrate updated live state.
   useEffect(() => {
-    const checkReset = () => {
-      const now = new Date();
-      const currentDay = now.toISOString().split("T")[0];
-      const lastResetDay = localStorage.getItem("lastDailyResetDay");
-
-      if (currentDay !== lastResetDay) {
-        const yesterday = new Date(now);
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayKey = yesterday.toISOString().split("T")[0];
-
-        // load global history for lists
-        const stored = localStorage.getItem("taskListHistory.v1");
-        let histories: TaskListHistory[] = [];
-        if (stored) {
-          try {
-            histories = JSON.parse(stored);
-          } catch {}
-        }
-
-        // iterate over lists that require resetting
-        taskLists.forEach((list) => {
-          if (!list.autoReset) return;
-          list.tasks.forEach((task) => {
-            let taskHist = histories.find((h) => h.listId === list.id && h.taskId === task.id);
-            if (!taskHist) {
-              taskHist = {
-                listId: list.id,
-                taskId: task.id,
-                taskTitle: task.title,
-                records: [],
-              };
-              histories.push(taskHist);
-            }
-
-            const existingRecord = taskHist.records.find((r) => r.date === yesterdayKey);
-            if (!existingRecord) {
-              taskHist.records.push({ date: yesterdayKey, status: "Incomplete" });
-            }
-          });
-        });
-
-        localStorage.setItem("taskListHistory.v1", JSON.stringify(histories));
-
-        // clear completed flags for autoReset lists
-        setTaskLists((prev) =>
-          prev.map((list) => {
-            if (!list.autoReset) return list;
-            return {
-              ...list,
-              tasks: list.tasks.map((t) => ({ ...t, completed: false })),
-            };
-          })
-        );
-
-        // remove matching history entries from global history log
-        const completedTasks: Task[] = [];
-        taskLists.forEach((list) => {
-          if (!list.autoReset) return;
-          completedTasks.push(...list.tasks.filter((t) => t.completed));
-        });
-        setHistory((prev) =>
-          prev.filter(
-            (item) =>
-              !(
-                item.category === "Daily Task" &&
-                completedTasks.some((task) => item.description === `Completed daily task: ${task.title}`)
-              )
-          )
-        );
-
-        localStorage.setItem("lastDailyResetDay", currentDay);
-      }
+    const checkDueResets = () => {
+      processDueResetsInBrowserStorage(new Date());
+      setTaskLists(loadTaskListsFromStore());
     };
 
-    checkReset();
-    const interval = setInterval(checkReset, 60 * 1000);
+    checkDueResets();
+    const interval = setInterval(checkDueResets, 60 * 1000);
     return () => clearInterval(interval);
-  }, [taskLists, history]);
+  }, []);
+
+  // Lazy fallback: when opening list pages, process due resets before rendering details.
+  useEffect(() => {
+    if (view !== "list-detail" && view !== "list-history") {
+      return;
+    }
+
+    processDueResetsInBrowserStorage(new Date());
+    setTaskLists(loadTaskListsFromStore());
+  }, [view, selectedListId]);
 
 
   const selectedRoutine =
@@ -632,6 +569,26 @@ export default function WorkplaceRoutinesDemoStyle() {
       return 0;
     });
   }, [selectedList]);
+
+  const formatScheduleSummary = (list: TaskList): string => {
+    if (!list.resetEnabled || list.frequency === "none") {
+      return "No reset schedule configured";
+    }
+
+    if (list.frequency === "daily") {
+      return `Daily at ${list.resetTime}`;
+    }
+
+    if (list.frequency === "weekly") {
+      return `Weekly (day ${list.resetDayOfWeek ?? 1}) at ${list.resetTime}`;
+    }
+
+    if (list.frequency === "biweekly") {
+      return `Biweekly (day ${list.resetDayOfWeek ?? 1}) at ${list.resetTime}`;
+    }
+
+    return `Monthly (day ${list.resetDayOfMonth ?? 1}) at ${list.resetTime}`;
+  };
 
   const openRoutine = (id: number) => {
     setSelectedRoutineId(id);
@@ -834,62 +791,6 @@ export default function WorkplaceRoutinesDemoStyle() {
         } as TaskList;
       })
     );
-
-    // record in the per-list history store
-    const todayKey = new Date().toISOString().split("T")[0];
-    const stored = localStorage.getItem("taskListHistory.v1");
-    let histories: TaskListHistory[] = [];
-    if (stored) {
-      try {
-        histories = JSON.parse(stored);
-      } catch {}
-    }
-
-    let taskHist = histories.find((h) => h.listId === listId && h.taskId === taskId);
-    if (!taskHist) {
-      taskHist = { listId, taskId, taskTitle: task.title, records: [] };
-      histories.push(taskHist);
-    }
-
-    const existingRecord = taskHist.records.find((r) => r.date === todayKey);
-    if (existingRecord) {
-      existingRecord.status = newCompleted ? "Complete" : "Incomplete";
-      if (newCompleted) {
-        existingRecord.completedAt = new Date().toISOString();
-      } else {
-        delete existingRecord.completedAt;
-      }
-    } else {
-      const newRec: TaskRecord = { date: todayKey, status: newCompleted ? "Complete" : "Incomplete" };
-      if (newCompleted) {
-        newRec.completedAt = new Date().toISOString();
-      }
-      taskHist.records.push(newRec);
-    }
-
-    localStorage.setItem("taskListHistory.v1", JSON.stringify(histories));
-
-    // update global history log
-    if (newCompleted) {
-      setHistory((prev) => [
-        {
-          date: new Date().toISOString(),
-          description: `Completed task: ${task.title}`,
-          category: "Daily Task",
-          routine: list.title,
-        },
-        ...prev,
-      ]);
-    } else {
-      setHistory((prev) =>
-        prev.filter(
-          (item) =>
-            !(item.description === `Completed task: ${task.title}` &&
-              item.category === "Daily Task" &&
-              item.routine === list.title)
-        )
-      );
-    }
   };
 
 
@@ -897,14 +798,6 @@ export default function WorkplaceRoutinesDemoStyle() {
 
   const deleteListFromOverview = (listId: number) => {
     setTaskLists((prev) => prev.filter((l) => l.id !== listId));
-    const stored = localStorage.getItem("taskListHistory.v1");
-    if (stored) {
-      try {
-        const histories: TaskListHistory[] = JSON.parse(stored);
-        const filtered = histories.filter((h) => h.listId !== listId);
-        localStorage.setItem("taskListHistory.v1", JSON.stringify(filtered));
-      } catch {}
-    }
   };
 
   const openDeleteListModal = (listId: number) => {
@@ -941,7 +834,14 @@ export default function WorkplaceRoutinesDemoStyle() {
       const list = findList(settingsListId);
       if (!list) return;
       setEditListName(list.title);
-      setEditListAutoReset(!!list.autoReset);
+      setEditListSchedule({
+        resetEnabled: list.resetEnabled,
+        frequency: list.frequency,
+        resetTime: list.resetTime,
+        resetDayOfWeek: list.resetDayOfWeek,
+        resetDayOfMonth: list.resetDayOfMonth,
+        timezone: list.timezone,
+      });
       setEditListColor(interpretColor(list.color as string) || (list.color as string) || "");
       setIsEditListDialogOpen(true);
     } else if (action === "delete") {
@@ -949,17 +849,110 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
   };
 
+
+  const defaultSchedule: ResetScheduleValue = {
+    resetEnabled: false,
+    frequency: "none",
+    resetTime: "06:00",
+    resetDayOfWeek: 1,
+    resetDayOfMonth: 1,
+    timezone: DEFAULT_TIMEZONE, // internal only
+  };  
+
+  const buildScheduleFields = (
+    schedule: ResetScheduleValue,
+    previous?: TaskList
+  ): Pick<
+    TaskList,
+    | "resetEnabled"
+    | "frequency"
+    | "resetTime"
+    | "resetDayOfWeek"
+    | "resetDayOfMonth"
+    | "timezone"
+    | "currentPeriodStartAt"
+    | "currentPeriodEndAt"
+    | "lastArchivedAt"
+    | "nextResetAt"
+  > => {
+    const resetEnabled = schedule.resetEnabled && schedule.frequency !== "none";
+
+    if (!resetEnabled) {
+      return {
+        resetEnabled: false,
+        frequency: "none",
+        resetTime: schedule.resetTime,
+        resetDayOfWeek: schedule.resetDayOfWeek,
+        resetDayOfMonth: schedule.resetDayOfMonth,
+        timezone: DEFAULT_TIMEZONE,
+        currentPeriodStartAt: undefined,
+        currentPeriodEndAt: undefined,
+        lastArchivedAt: previous?.lastArchivedAt,
+        nextResetAt: undefined,
+      };
+    }
+
+    const policyUnchanged =
+      previous &&
+      previous.resetEnabled &&
+      previous.frequency === schedule.frequency &&
+      previous.resetTime === schedule.resetTime &&
+      previous.resetDayOfWeek === schedule.resetDayOfWeek &&
+      previous.resetDayOfMonth === schedule.resetDayOfMonth;
+
+    if (policyUnchanged) {
+      return {
+        resetEnabled: true,
+        frequency: schedule.frequency,
+        resetTime: schedule.resetTime,
+        resetDayOfWeek: schedule.resetDayOfWeek,
+        resetDayOfMonth: schedule.resetDayOfMonth,
+        timezone: DEFAULT_TIMEZONE,
+        currentPeriodStartAt: previous.currentPeriodStartAt,
+        currentPeriodEndAt: previous.currentPeriodEndAt,
+        lastArchivedAt: previous.lastArchivedAt,
+        nextResetAt: previous.nextResetAt,
+      };
+    }
+
+    const next = calculateNextResetAt(
+      {
+        frequency: schedule.frequency,
+        resetTime: schedule.resetTime,
+        resetDayOfWeek: schedule.resetDayOfWeek,
+        resetDayOfMonth: schedule.resetDayOfMonth,
+        timezone: DEFAULT_TIMEZONE,
+      },
+      new Date()
+    );
+
+    return {
+      resetEnabled: true,
+      frequency: schedule.frequency,
+      resetTime: schedule.resetTime,
+      resetDayOfWeek: schedule.resetDayOfWeek,
+      resetDayOfMonth: schedule.resetDayOfMonth,
+      timezone: DEFAULT_TIMEZONE,
+      currentPeriodStartAt: undefined,
+      currentPeriodEndAt: next?.toISOString(),
+      lastArchivedAt: previous?.lastArchivedAt,
+      nextResetAt: next?.toISOString(),
+    };
+  };
+
   // new-list dialog state & helpers
   const [isNewListDialogOpen, setIsNewListDialogOpen] = useState(false);
   const [newListName, setNewListName] = useState("");
-  const [newListAutoReset, setNewListAutoReset] = useState(false);
+  const [newListSchedule, setNewListSchedule] =
+    useState<ResetScheduleValue>(defaultSchedule);
   // default accent color for a freshly created list should be brand red
   const [newListColor, setNewListColor] = useState<ColorKey | "">("red");
 
   // edit-list dialog state
   const [isEditListDialogOpen, setIsEditListDialogOpen] = useState(false);
   const [editListName, setEditListName] = useState("");
-  const [editListAutoReset, setEditListAutoReset] = useState(false);
+  const [editListSchedule, setEditListSchedule] =
+    useState<ResetScheduleValue>(defaultSchedule);
   const [editListColor, setEditListColor] = useState("");
 
   // task dialog state & helpers (replaces native prompt flows)
@@ -1000,27 +993,6 @@ export default function WorkplaceRoutinesDemoStyle() {
         l.id === listId ? { ...l, tasks: [...l.tasks, newTask] } : l
       )
     );
-
-    // ensure history entry exists for the new task
-    const stored = localStorage.getItem("taskListHistory.v1");
-    let histories: TaskListHistory[] = [];
-    if (stored) {
-      try {
-        histories = JSON.parse(stored);
-      } catch {}
-    }
-    const taskHist = histories.find(
-      (h) => h.listId === listId && h.taskId === nextId
-    );
-    if (!taskHist) {
-      histories.push({
-        listId,
-        taskId: nextId,
-        taskTitle: title,
-        records: [],
-      });
-      localStorage.setItem("taskListHistory.v1", JSON.stringify(histories));
-    }
   };
 
   const updateTask = (
@@ -1041,20 +1013,6 @@ export default function WorkplaceRoutinesDemoStyle() {
           : l
       )
     );
-    // update title in history as well
-    const stored = localStorage.getItem("taskListHistory.v1");
-    if (stored) {
-      try {
-        const histories: TaskListHistory[] = JSON.parse(stored);
-        const taskHist = histories.find(
-          (h) => h.listId === listId && h.taskId === taskId
-        );
-        if (taskHist && taskHist.taskTitle !== title) {
-          taskHist.taskTitle = title;
-          localStorage.setItem("taskListHistory.v1", JSON.stringify(histories));
-        }
-      } catch {}
-    }
   };
 
   const handleTaskDialogSubmit = (title: string, description: string) => {
@@ -1072,7 +1030,7 @@ export default function WorkplaceRoutinesDemoStyle() {
   const promptNewList = () => {
     if (!requireAdmin()) return;
     setNewListName("");
-    setNewListAutoReset(false);
+    setNewListSchedule(defaultSchedule);
     setNewListColor("");
     setIsNewListDialogOpen(true);
   };
@@ -1086,9 +1044,10 @@ export default function WorkplaceRoutinesDemoStyle() {
       {
         id: nextId,
         title: nameTrimmed,
+        description: undefined,
         tasks: [],
-        autoReset: newListAutoReset,
         color: newListColor,
+        ...buildScheduleFields(newListSchedule),
       },
     ]);
     setIsNewListDialogOpen(false);
@@ -1101,7 +1060,12 @@ export default function WorkplaceRoutinesDemoStyle() {
     setTaskLists((prev) =>
       prev.map((l) =>
         l.id === settingsListId
-          ? { ...l, title: nameTrimmed, autoReset: editListAutoReset, color: editListColor }
+          ? {
+              ...l,
+              title: nameTrimmed,
+              color: editListColor,
+              ...buildScheduleFields(editListSchedule, l),
+            }
           : l
       )
     );
@@ -1140,16 +1104,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
 
     if (removeHistory && task) {
-      const stored = localStorage.getItem("taskListHistory.v1");
-      if (stored) {
-        try {
-          const histories: TaskListHistory[] = JSON.parse(stored);
-          const filtered = histories.filter(
-            (h) => !(h.listId === listId && h.taskId === taskId)
-          );
-          localStorage.setItem("taskListHistory.v1", JSON.stringify(filtered));
-        } catch {}
-      }
+      // Archived history is immutable and intentionally preserved.
     }
   };
 
@@ -1663,9 +1618,9 @@ export default function WorkplaceRoutinesDemoStyle() {
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-5xl font-bold">{selectedList.title}</h1>
-                  {selectedList.autoReset && (
+                  {selectedList.resetEnabled && selectedList.frequency !== "none" && (
                     <p className="mt-2 text-xl text-white/80">
-                      Resets every day at 06:00
+                      Resets: {formatScheduleSummary(selectedList)}
                     </p>
                   )}
                 </div>
@@ -2426,7 +2381,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           <div className="space-y-4">
             {deleteListStep === 1 && (
               <p>
-                Er du sikker på at du vil slette listen "{deleteListInfo?.title}" og alle oppgaver?
+                Er du sikker på at du vil slette listen &quot;{deleteListInfo?.title}&quot; og alle oppgaver?
               </p>
             )}
             {deleteListStep === 2 && (
@@ -2459,7 +2414,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Name for new list</DialogTitle>
-            <DialogDescription>Provide a name, auto-reset option, and accent color.</DialogDescription>
+            <DialogDescription>Provide a name, reset schedule, and accent color.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input
@@ -2473,15 +2428,10 @@ export default function WorkplaceRoutinesDemoStyle() {
                 }
               }}
             />
-            <div className="flex items-center gap-2">
-              <input
-                id="auto-reset"
-                type="checkbox"
-                checked={newListAutoReset}
-                onChange={(e) => setNewListAutoReset(e.target.checked)}
-              />
-              <label htmlFor="auto-reset">Auto-reset daily</label>
-            </div>
+            <ResetScheduleForm
+              value={newListSchedule}
+              onChange={setNewListSchedule}
+            />
             <div>
               <label className="block text-sm font-medium mb-1">Accent color</label>
               <ColorPicker
@@ -2502,7 +2452,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Edit list</DialogTitle>
-            <DialogDescription>Change name, auto-reset, or accent color.</DialogDescription>
+            <DialogDescription>Change name, reset schedule, or accent color.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input
@@ -2516,15 +2466,10 @@ export default function WorkplaceRoutinesDemoStyle() {
                 }
               }}
             />
-            <div className="flex items-center gap-2">
-              <input
-                id="edit-auto-reset"
-                type="checkbox"
-                checked={editListAutoReset}
-                onChange={(e) => setEditListAutoReset(e.target.checked)}
-              />
-              <label htmlFor="edit-auto-reset">Auto-reset daily</label>
-            </div>
+            <ResetScheduleForm
+              value={editListSchedule}
+              onChange={setEditListSchedule}
+            />
             <div>
               <label className="block text-sm font-medium mb-1">Accent color</label>
               <ColorPicker

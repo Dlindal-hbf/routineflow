@@ -6,20 +6,21 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import {
+  ROUTINE_TASK_HISTORY_KEY,
+  ROUTINE_TASKS_KEY,
+} from "@/src/lib/scheduling/browser-reset-store";
+import {
+  RoutineTask,
+  RoutineTaskHistory,
+} from "@/src/lib/scheduling/reset-types";
 
-// storage format, similar to old Stenger history but includes listId
+type CalendarStatus = "complete" | "incomplete";
 
-type TaskRecord = {
-  date: string; // YYYY-MM-DD
-  status: "Complete" | "Incomplete";
-  completedAt?: string;
-};
-
-type TaskHistory = {
-  listId: number;
-  taskId: number;
+type TaskHistoryView = {
+  taskId: string;
   taskTitle: string;
-  records: TaskRecord[];
+  records: Record<string, CalendarStatus>;
 };
 
 interface Props {
@@ -28,70 +29,67 @@ interface Props {
   onBack?: () => void;
 }
 
-const HISTORY_STORAGE_KEY = "taskListHistory.v1";
-
-export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
-  const [taskHistories, setTaskHistories] = useState<TaskHistory[]>([]);
-  const [expandedTask, setExpandedTask] = useState<number | null>(null);
+export default function TaskListHistory({ listId, listTitle }: Props) {
+  const [taskHistories, setTaskHistories] = useState<TaskHistoryView[]>([]);
+  const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
 
-  // load history and ensure every defined task in the appropriate list has an entry
+  const listIdAsString = String(listId);
+
+  // Live state is stored separately from immutable archived history.
+  // History is written only by the reset engine at period boundary time.
   useEffect(() => {
-    let histories: TaskHistory[] = [];
-    const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
-    if (stored) {
-      try {
-        histories = JSON.parse(stored) as TaskHistory[];
-      } catch {
-        // ignore
+    let allTasks: RoutineTask[] = [];
+    let allHistory: RoutineTaskHistory[] = [];
+
+    try {
+      const storedTasks = localStorage.getItem(ROUTINE_TASKS_KEY);
+      if (storedTasks) {
+        allTasks = JSON.parse(storedTasks) as RoutineTask[];
       }
+    } catch {
+      // ignore parse errors
     }
 
-    // make sure tasks that exist in the list data are represented
-    const listsStored = localStorage.getItem("taskLists");
-    if (listsStored) {
-      try {
-        const lists: any[] = JSON.parse(listsStored);
-        const list = lists.find((l) => l.id === listId);
-        const todayKey = new Date().toISOString().split("T")[0];
-        if (list) {
-          list.tasks.forEach((t: any) => {
-            let existing = histories.find(
-              (h) => h.listId === listId && h.taskId === t.id
-            );
-            if (existing) {
-              if (existing.taskTitle !== t.title) {
-                existing.taskTitle = t.title;
-              }
-            } else {
-              existing = {
-                listId,
-                taskId: t.id,
-                taskTitle: t.title,
-                records: [],
-              };
-              histories.push(existing);
-            }
-
-            // ensure a record exists for today matching current completion state
-            const rec = existing.records.find((r) => r.date === todayKey);
-            // we don't know current completion here - skip
-          });
-        }
-      } catch {
-        // ignore parse errors
+    try {
+      const storedHistory = localStorage.getItem(ROUTINE_TASK_HISTORY_KEY);
+      if (storedHistory) {
+        allHistory = JSON.parse(storedHistory) as RoutineTaskHistory[];
       }
+    } catch {
+      // ignore parse errors
     }
 
-    setTaskHistories(histories);
-  }, [listId]);
+    const tasksForList = allTasks
+      .filter((task) => task.listId === listIdAsString)
+      .sort((a, b) => a.sortOrder - b.sortOrder);
 
-  // save whenever histories updated
-  useEffect(() => {
-    if (taskHistories.length > 0) {
-      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(taskHistories));
-    }
-  }, [taskHistories]);
+    const views: TaskHistoryView[] = tasksForList.map((task) => {
+      const taskRecords = allHistory
+        .filter(
+          (record) =>
+            record.listId === listIdAsString && record.taskId === task.id
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.archivedAt).getTime() - new Date(b.archivedAt).getTime()
+        );
+
+      const records: Record<string, CalendarStatus> = {};
+      for (const record of taskRecords) {
+        const dateKey = record.periodEndAt.split("T")[0];
+        records[dateKey] = record.status;
+      }
+
+      return {
+        taskId: task.id,
+        taskTitle: task.title,
+        records,
+      };
+    });
+
+    setTaskHistories(views);
+  }, [listIdAsString]);
 
   const getDateKey = (d: Date): string => {
     const year = d.getFullYear();
@@ -101,13 +99,11 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
   };
 
   const getRecordForDate = (
-    taskId: number,
+    taskId: string,
     date: string
-  ): TaskRecord | undefined => {
-    const history = taskHistories.find(
-      (h) => h.listId === listId && h.taskId === taskId
-    );
-    return history?.records.find((r) => r.date === date);
+  ): CalendarStatus | undefined => {
+    const history = taskHistories.find((h) => h.taskId === taskId);
+    return history?.records[date];
   };
 
   // calendar helpers
@@ -159,7 +155,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
       <h1 className="mb-8 text-4xl font-bold">{listTitle} History</h1>
 
       {(() => {
-        const filtered = taskHistories.filter((h) => h.listId === listId);
+        const filtered = taskHistories;
         if (filtered.length === 0) {
           return (
             <p className="text-xl text-slate-600">
@@ -191,7 +187,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                         </h3>
                       </div>
                       <Badge className="rounded-full bg-accent-gold-muted px-3 py-1 text-accent-gold">
-                        {taskHist.records.length} records
+                        {Object.keys(taskHist.records).length} records
                       </Badge>
                     </motion.div>
 
@@ -241,8 +237,8 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                                 );
                                 const dateKey = getDateKey(date);
                                 const record = getRecordForDate(taskHist.taskId, dateKey);
-                                const isComplete = record?.status === "Complete";
-                                const isIncomplete = record?.status === "Incomplete";
+                                const isComplete = record === "complete";
+                                const isIncomplete = record === "incomplete";
                                 return (
                                   <motion.div
                                     key={di}
@@ -251,7 +247,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                                       isComplete
                                         ? "border-green-400 bg-green-50 text-green-700"
                                         : isIncomplete
-                                        ? "border-destructive/40 bg-destructive/20 text-destructive"
+                                        ? "border-black bg-black text-white"
                                         : "border-slate-200 bg-white text-slate-700"
                                     }`}
                                   >
@@ -269,7 +265,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                             <span className="text-sm text-slate-600">Complete</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <div className="h-4 w-4 rounded bg-destructive/20 ring-2 ring-destructive/40" />
+                            <div className="h-4 w-4 rounded bg-black ring-2 ring-black" />
                             <span className="text-sm text-slate-600">Incomplete</span>
                           </div>
                           <div className="flex items-center gap-2">
