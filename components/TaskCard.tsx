@@ -38,7 +38,7 @@ export default function TaskCard({
     >
       <Card
         className={cn(
-          "rounded-3xl border border-slate-200 bg-white shadow-sm transition-shadow",
+          "rounded-3xl border border-border bg-background shadow-sm transition-shadow",
           completed ? "opacity-70" : "hover:shadow-lg"
         )}
       >
@@ -48,18 +48,18 @@ export default function TaskCard({
               <h3
                 className={cn(
                   "text-2xl font-semibold",
-                  completed ? "text-slate-400 line-through" : ""
+                  completed ? "text-foreground/40 line-through" : "text-foreground"
                 )}
               >
                 {title}
               </h3>
               {frequency && (
-                <span className="mt-2 inline-block rounded-full bg-blue-100 px-4 py-1 text-base text-blue-700">
+                <span className="mt-2 inline-block rounded-full border border-accent/30 bg-accent/20 px-4 py-1 text-base text-accent-foreground">
                   {frequency}
                 </span>
               )}
               {description && (
-                <p className="mt-2 text-lg text-slate-600">{description}</p>
+                <p className="mt-2 text-lg text-foreground/70">{description}</p>
               )}
             </div>
             <div className="flex items-center gap-3">
@@ -74,7 +74,7 @@ export default function TaskCard({
                     }}
                     className={cn(
                       "h-12 w-12 rounded-2xl",
-                      completed ? "bg-green-500 hover:bg-green-600" : ""
+                      completed ? "bg-primary hover:bg-primary/90" : ""
                     )}
                   >
                     <CheckCircle2 className="h-6 w-6" />
@@ -105,7 +105,7 @@ export default function TaskCard({
                       e.stopPropagation();
                       onDelete();
                     }}
-                    className="h-12 w-12 rounded-2xl text-red-500 hover:text-red-600"
+                    className="h-12 w-12 rounded-2xl text-destructive hover:text-destructive/80"
                   >
                     <Trash2 className="h-6 w-6" />
                   </Button>

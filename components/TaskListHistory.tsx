@@ -55,7 +55,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
         const list = lists.find((l) => l.id === listId);
         const todayKey = new Date().toISOString().split("T")[0];
         if (list) {
-          list.tasks.forEach((t) => {
+          list.tasks.forEach((t: any) => {
             let existing = histories.find(
               (h) => h.listId === listId && h.taskId === t.id
             );
@@ -190,7 +190,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                           {taskHist.taskTitle}
                         </h3>
                       </div>
-                      <Badge className="rounded-full bg-blue-100 px-3 py-1 text-blue-700">
+                      <Badge className="rounded-full bg-accent-gold-muted px-3 py-1 text-accent-gold">
                         {taskHist.records.length} records
                       </Badge>
                     </motion.div>
@@ -251,7 +251,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                                       isComplete
                                         ? "border-green-400 bg-green-50 text-green-700"
                                         : isIncomplete
-                                        ? "border-red-400 bg-red-50 text-red-700"
+                                        ? "border-destructive/40 bg-destructive/20 text-destructive"
                                         : "border-slate-200 bg-white text-slate-700"
                                     }`}
                                   >
@@ -269,7 +269,7 @@ export default function TaskListHistory({ listId, listTitle, onBack }: Props) {
                             <span className="text-sm text-slate-600">Complete</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <div className="h-4 w-4 rounded bg-red-50 ring-2 ring-red-400" />
+                            <div className="h-4 w-4 rounded bg-destructive/20 ring-2 ring-destructive/40" />
                             <span className="text-sm text-slate-600">Incomplete</span>
                           </div>
                           <div className="flex items-center gap-2">

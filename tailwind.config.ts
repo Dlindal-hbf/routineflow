@@ -1,18 +1,25 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./src/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
+        /* semantic theme tokens (shadcn/ui) mapped to CSS variables */
+        background: "var(--background)",
+        foreground: "var(--foreground)",
         primary: {
-          DEFAULT: "#2563eb", // calm blue
-          foreground: "#ffffff",
+          DEFAULT: "var(--primary)",
+          foreground: "var(--primary-foreground)",
         },
-        secondary: {
-          DEFAULT: "#f59e0b", // amber for highlights/status
-          foreground: "#000000",
+        accent: {
+          DEFAULT: "var(--accent)",
+          foreground: "var(--accent-foreground)",
         },
+        border: "var(--border)",
+        muted: "var(--muted)",
+
+        /* still expose some of the custom roles for legacy use */
         destructive: "#ef4444",
         neutral: {
           50: "#f9fafb",
@@ -26,9 +33,19 @@ const config: Config = {
           800: "#1f2937",
           900: "#111827",
         },
-        background: "#f9fafb",
+
+        /* additional semantic helpers (optional) */
+        "brand-primary": "var(--primary)",
+        "brand-primary-hover": "#6a1415",
+        "brand-primary-active": "#5c1214",
+        "accent-gold": "var(--accent)",
+        "accent-gold-muted": "#fce9b2",
+        focus: "var(--primary)",
+        "badge-priority": "var(--accent)",
+        "card-accent": "var(--primary)",
+
+        /* legacy names for white/gray usage (keep for convenience) */
         card: "#ffffff",
-        border: "#e5e7eb",
       },
       spacing: {
         1: "4px",

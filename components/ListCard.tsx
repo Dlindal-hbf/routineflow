@@ -41,7 +41,7 @@ export default function ListCard({
     >
       <Card
         className={cn(
-          "overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm",
+          "overflow-hidden rounded-3xl border border-border bg-background shadow-sm",
           accentClass || ""
         )}
       >
@@ -53,7 +53,7 @@ export default function ListCard({
                 <span className="text-[22px] font-semibold">{title}</span>
               </div>
               {tag && (
-                <span className="inline-block rounded-full border-0 bg-emerald-100 px-4 py-1 text-base font-medium capitalize text-emerald-700">
+                <span className="inline-block rounded-full border border-accent/30 bg-accent/20 px-4 py-1 text-base font-medium capitalize text-accent-foreground">
                   {tag}
                 </span>
               )}
@@ -64,7 +64,7 @@ export default function ListCard({
                   e.stopPropagation();
                   onSettings();
                 }}
-                className="h-14 w-14 rounded-2xl border-slate-200 border"
+                className="h-14 w-14 rounded-2xl border border-border text-foreground/70 transition-colors hover:bg-muted"
               >
                 <Settings className="h-6 w-6" />
               </button>
@@ -73,16 +73,16 @@ export default function ListCard({
 
           {progress && (
             <>
-              <div className="mb-3 flex items-center justify-between text-[18px] text-slate-500">
+              <div className="mb-3 flex items-center justify-between text-[18px] text-foreground/70">
                 <span>Progress</span>
-                <span className="flex items-center gap-2 font-semibold text-slate-900">
-                  <CheckCircle2 className="h-5 w-5 text-slate-700" />
+                <span className="flex items-center gap-2 font-semibold text-foreground">
+                  <CheckCircle2 className="h-5 w-5 text-primary" />
                   {completed}/{total}
                 </span>
               </div>
-              <div className="mb-6 h-3 rounded-full bg-slate-200">
+              <div className="mb-6 h-3 rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-emerald-500"
+                  className="h-full rounded-full bg-primary"
                   style={{ width: `${percent}%` }}
                 />
               </div>

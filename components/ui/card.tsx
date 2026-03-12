@@ -7,8 +7,8 @@ import { cva, type VariantProps } from "class-variance-authority";
 const cardVariants = cva("flex flex-col gap-6", {
   variants: {
     variant: {
-      default: "rounded-lg border bg-card text-card-foreground shadow-card",
-      active: "rounded-lg border border-primary bg-card text-card-foreground shadow-card-hover",
+      default: "rounded-lg border border-border bg-background text-foreground shadow-card",
+      active: "rounded-lg border border-primary bg-background text-foreground shadow-card-hover",
     },
     padding: {
       normal: "p-6",

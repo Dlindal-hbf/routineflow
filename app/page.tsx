@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -19,7 +19,9 @@ import {
 } from "lucide-react";
 import ListCard from "@/components/ListCard";
 import TaskCard from "@/components/TaskCard";
+import TaskDialog from "../components/TaskDialog";
 import PageHeader from "@/components/ui/PageHeader";
+import BrandedHeader from "@/components/BrandedHeader";
 import { Textarea } from "@/components/ui/textarea";
 
 import { motion } from "framer-motion";
@@ -30,9 +32,11 @@ import { Button } from "@/components/ui/button";
 import InventoryLog from "@/components/InventoryLog";
 import OstInventoryLog from "@/components/OstInventoryLog";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
+import ColorPicker from "@/components/ui/ColorPicker";
+import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
 
 type View =
   | "overview"
@@ -81,22 +85,12 @@ type Task = {
 type TaskList = {
   id: number;
   title: string;
-  color?: string;           // border or accent color
+  color?: ColorKey | string; // semantic color key (e.g. "blue") or legacy class
   autoReset?: boolean;      // if true the list will auto–clear completed tasks daily
   tasks: Task[];
 };
 
 // routines (unchanged)
-
-type Routine = {
-  id: number;
-  title: string;
-  emoji: string;
-  tag: string;
-  color: string;
-  progressColor: string;
-  tasks: Task[];
-};
 
 type Routine = {
   id: number;
@@ -269,7 +263,7 @@ const initialRoutines: Routine[] = [
     emoji: "🧹",
     tag: "cleaning",
     color: "border-t-blue-500",
-    progressColor: "bg-blue-500",
+    progressColor: "bg-primary", 
     tasks: [
       {
         id: 201,
@@ -485,44 +479,27 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
 
-  // load lists from localStorage or initialize with one default list
+  // load lists from localStorage or initialize empty (no prepopulated cards)
   useEffect(() => {
     const stored = localStorage.getItem("taskLists");
     if (stored) {
       try {
-        setTaskLists(JSON.parse(stored));
+        const parsed: TaskList[] = JSON.parse(stored);
+        // migrate any legacy color values to semantic keys and default missing color to red
+        const converted = parsed.map((l) => ({
+          ...l,
+          color:
+            interpretColor(l.color as string) ||
+            (l.color as string) ||
+            "red",
+        }));
+        setTaskLists(converted);
       } catch {
         setTaskLists([]);
       }
     } else {
-      setTaskLists([
-        {
-          id: 1,
-          title: "Stengerutiner",
-          color: "border-t-orange-500",
-          autoReset: true,
-          tasks: [
-            { id: 1, title: "Tøm søppel", description: "Tøm alle beholdere og sett inn ny pose.", completed: false },
-            { id: 2, title: "Vask gulv", description: "Fei og mopp alle gulv før stenging.", completed: false },
-            { id: 3, title: "Lås bakdør og sjekk alarm", description: "Bekreft at alarm er satt og alle dører er låst.", completed: false },
-            { id: 4, title: "Rengjør maskiner", description: "Vask utsatte kontaktflater og maskinutstyr.", completed: false },
-          ],
-        },
-        {
-          id: 2,
-          title: "Ukentlige oppgaver",
-          color: "border-t-blue-500",
-          autoReset: false,
-          tasks: [],
-        },
-        {
-          id: 3,
-          title: "Prepp",
-          color: "border-t-green-500",
-          autoReset: false,
-          tasks: [],
-        },
-      ]);
+      // start with no lists so front page remains clean
+      setTaskLists([]);
     }
   }, []);
 
@@ -915,24 +892,116 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
   };
 
-  const addTaskToList = (listId: number) => {
-    if (!requireAdmin()) return;
+
+  // list-specific helpers (admin only)
+
+  const deleteListFromOverview = (listId: number) => {
+    setTaskLists((prev) => prev.filter((l) => l.id !== listId));
+    const stored = localStorage.getItem("taskListHistory.v1");
+    if (stored) {
+      try {
+        const histories: TaskListHistory[] = JSON.parse(stored);
+        const filtered = histories.filter((h) => h.listId !== listId);
+        localStorage.setItem("taskListHistory.v1", JSON.stringify(filtered));
+      } catch {}
+    }
+  };
+
+  const openDeleteListModal = (listId: number) => {
     const list = findList(listId);
     if (!list) return;
-    const title = window.prompt("Title", "");
-    if (!title) return;
-    const description = window.prompt("Description", "") || "";
+    setDeleteListInfo({ listId, title: list.title });
+    setDeleteListStep(1);
+    setIsDeleteListModalOpen(true);
+  };
+
+  const handleDeleteListChoice = (confirm: boolean) => {
+    if (!deleteListInfo) return;
+    if (!confirm) {
+      setIsDeleteListModalOpen(false);
+      return;
+    }
+    if (deleteListStep === 1) {
+      setDeleteListStep(2);
+    } else {
+      deleteListFromOverview(deleteListInfo.listId);
+      setIsDeleteListModalOpen(false);
+    }
+  };
+
+  const openListSettings = (listId: number) => {
+    setSettingsListId(listId);
+    setIsListSettingsOpen(true);
+  };
+
+  const handleListSettingsAction = (action: "edit" | "delete") => {
+    if (!settingsListId) return;
+    setIsListSettingsOpen(false);
+    if (action === "edit") {
+      const list = findList(settingsListId);
+      if (!list) return;
+      setEditListName(list.title);
+      setEditListAutoReset(!!list.autoReset);
+      setEditListColor(interpretColor(list.color as string) || (list.color as string) || "");
+      setIsEditListDialogOpen(true);
+    } else if (action === "delete") {
+      openDeleteListModal(settingsListId);
+    }
+  };
+
+  // new-list dialog state & helpers
+  const [isNewListDialogOpen, setIsNewListDialogOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [newListAutoReset, setNewListAutoReset] = useState(false);
+  // default accent color for a freshly created list should be brand red
+  const [newListColor, setNewListColor] = useState<ColorKey | "">("red");
+
+  // edit-list dialog state
+  const [isEditListDialogOpen, setIsEditListDialogOpen] = useState(false);
+  const [editListName, setEditListName] = useState("");
+  const [editListAutoReset, setEditListAutoReset] = useState(false);
+  const [editListColor, setEditListColor] = useState("");
+
+  // task dialog state & helpers (replaces native prompt flows)
+  const [isTaskDialogOpen, setIsTaskDialogOpen] = useState(false);
+  const [taskDialogMode, setTaskDialogMode] = useState<"create" | "edit">("create");
+  const [taskDialogListId, setTaskDialogListId] = useState<number | null>(null);
+  const [taskDialogInitTitle, setTaskDialogInitTitle] = useState("");
+  const [taskDialogInitDescription, setTaskDialogInitDescription] = useState("");
+  const [taskDialogEditingTaskId, setTaskDialogEditingTaskId] = useState<number | null>(null);
+
+  const promptAddTask = (listId: number) => {
+    if (!requireAdmin()) return;
+    setTaskDialogMode("create");
+    setTaskDialogListId(listId);
+    setTaskDialogInitTitle("");
+    setTaskDialogInitDescription("");
+    setTaskDialogEditingTaskId(null);
+    setIsTaskDialogOpen(true);
+  };
+
+  const promptEditTask = (listId: number, task: Task) => {
+    if (!requireAdmin()) return;
+    setTaskDialogMode("edit");
+    setTaskDialogListId(listId);
+    setTaskDialogInitTitle(task.title);
+    setTaskDialogInitDescription(task.description);
+    setTaskDialogEditingTaskId(task.id);
+    setIsTaskDialogOpen(true);
+  };
+
+  const createTask = (listId: number, title: string, description: string) => {
+    const list = findList(listId);
+    if (!list) return;
     const nextId = Math.max(0, ...list.tasks.map((t) => t.id)) + 1;
-    const newTask = { id: nextId, title, description, completed: false };
+    const newTask: Task = { id: nextId, title, description, completed: false };
     setTaskLists((prev) =>
       prev.map((l) =>
-        l.id === listId
-          ? { ...l, tasks: [...l.tasks, newTask] }
-          : l
+        l.id === listId ? { ...l, tasks: [...l.tasks, newTask] } : l
       )
     );
 
-    // also ensure history entry exists for the new task
+    // ensure history entry exists for the new task
     const stored = localStorage.getItem("taskListHistory.v1");
     let histories: TaskListHistory[] = [];
     if (stored) {
@@ -954,16 +1023,20 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
   };
 
-  const editTaskInList = (listId: number, task: Task) => {
-    if (!requireAdmin()) return;
-    const title = window.prompt("Title", task.title) || task.title;
-    const description = window.prompt("Description", task.description) || task.description;
+  const updateTask = (
+    listId: number,
+    taskId: number,
+    title: string,
+    description: string
+  ) => {
     setTaskLists((prev) =>
       prev.map((l) =>
         l.id === listId
           ? {
               ...l,
-              tasks: l.tasks.map((t) => (t.id === task.id ? { ...t, title, description } : t)),
+              tasks: l.tasks.map((t) =>
+                t.id === taskId ? { ...t, title, description } : t
+              ),
             }
           : l
       )
@@ -974,7 +1047,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       try {
         const histories: TaskListHistory[] = JSON.parse(stored);
         const taskHist = histories.find(
-          (h) => h.listId === listId && h.taskId === task.id
+          (h) => h.listId === listId && h.taskId === taskId
         );
         if (taskHist && taskHist.taskTitle !== title) {
           taskHist.taskTitle = title;
@@ -983,6 +1056,58 @@ export default function WorkplaceRoutinesDemoStyle() {
       } catch {}
     }
   };
+
+  const handleTaskDialogSubmit = (title: string, description: string) => {
+    if (taskDialogListId == null) return;
+    if (taskDialogMode === "create") {
+      createTask(taskDialogListId, title, description);
+    } else if (
+      taskDialogMode === "edit" &&
+      taskDialogEditingTaskId != null
+    ) {
+      updateTask(taskDialogListId, taskDialogEditingTaskId, title, description);
+    }
+  };
+
+  const promptNewList = () => {
+    if (!requireAdmin()) return;
+    setNewListName("");
+    setNewListAutoReset(false);
+    setNewListColor("");
+    setIsNewListDialogOpen(true);
+  };
+
+  const createNewList = () => {
+    const nameTrimmed = newListName.trim();
+    if (!nameTrimmed) return;
+    const nextId = Math.max(0, ...taskLists.map((l) => l.id)) + 1;
+    setTaskLists((prev) => [
+      ...prev,
+      {
+        id: nextId,
+        title: nameTrimmed,
+        tasks: [],
+        autoReset: newListAutoReset,
+        color: newListColor,
+      },
+    ]);
+    setIsNewListDialogOpen(false);
+  };
+
+  const applyEditList = () => {
+    if (settingsListId == null) return;
+    const nameTrimmed = editListName.trim();
+    if (!nameTrimmed) return;
+    setTaskLists((prev) =>
+      prev.map((l) =>
+        l.id === settingsListId
+          ? { ...l, title: nameTrimmed, autoReset: editListAutoReset, color: editListColor }
+          : l
+      )
+    );
+    setIsEditListDialogOpen(false);
+  };
+
 
   // perform actual deletion (called after modal confirmation)
   const deleteTaskFromList = (
@@ -1028,7 +1153,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
   };
 
-  // deletion modal state
+  // deletion modal state (tasks)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteInfo, setDeleteInfo] = useState<{
     listId: number;
@@ -1036,6 +1161,17 @@ export default function WorkplaceRoutinesDemoStyle() {
     taskTitle: string;
   } | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2 | 3>(1);
+
+  // list settings & deletion state (admins only)
+  const [isListSettingsOpen, setIsListSettingsOpen] = useState(false);
+  const [settingsListId, setSettingsListId] = useState<number | null>(null);
+
+  const [isDeleteListModalOpen, setIsDeleteListModalOpen] = useState(false);
+  const [deleteListInfo, setDeleteListInfo] = useState<{
+    listId: number;
+    title: string;
+  } | null>(null);
+  const [deleteListStep, setDeleteListStep] = useState<1 | 2>(1);
 
   const openDeleteModal = (
     listId: number,
@@ -1065,21 +1201,8 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
   };
 
-  const promptNewList = () => {
-    if (!requireAdmin()) return;
-    const name = window.prompt("Name for new list", "");
-    if (!name) return;
-    const resetAnswer = window.prompt(
-      "Auto-reset daily? (y/N)",
-      "n"
-    );
-    const autoReset = resetAnswer?.toLowerCase() === "y";
-    const nextId = Math.max(0, ...taskLists.map((l) => l.id)) + 1;
-    setTaskLists((prev) => [
-      ...prev,
-      { id: nextId, title: name, tasks: [], autoReset },
-    ]);
-  };
+  // removed native prompt for name; new-dialog workflow handles creation
+  // promptNewList is defined earlier where the dialog state lives
 
   const selectedCompleted = routineTasks.filter((task) => task.completed).length;
   const selectedTotal = routineTasks.length;
@@ -1231,15 +1354,15 @@ export default function WorkplaceRoutinesDemoStyle() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="min-h-screen bg-background text-foreground">
       {!user && (
-        <div className="flex flex-col items-center justify-center h-full bg-slate-100 text-slate-900 px-6">
-          <h1 className="text-5xl font-bold mb-4">PB INTERNE RUTINER</h1>
-          <p className="text-xl text-slate-600 mb-8">
+        <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-foreground">
+          <h1 className="mb-4 text-5xl font-bold text-primary">PB INTERNE RUTINER</h1>
+          <p className="mb-8 text-xl text-foreground/70">
             Daglige oppgaver og rutiner for alle avdelinger
           </p>
 
-          <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md">
+          <div className="w-full max-w-md rounded-2xl border-2 border-primary/25 bg-background p-8 shadow-lg">
             <h2 className="text-2xl font-semibold mb-4">Sign in</h2>
             <form
               onSubmit={(e) => {
@@ -1252,16 +1375,16 @@ export default function WorkplaceRoutinesDemoStyle() {
                 placeholder="Enter code"
                 value={loginCode}
                 onChange={(e) => setLoginCode(e.target.value)}
-                className="mb-4 w-full border px-3 py-2 rounded"
+                className="mb-4 w-full rounded border border-border bg-background px-3 py-2"
               />
               <Button className="w-full" type="submit">
                 Submit
               </Button>
             </form>
-            <p className="text-sm text-gray-500 mt-2">use admin123 or staff123</p>
+            <p className="mt-2 text-sm text-foreground/60">use admin123 or staff123</p>
           </div>
 
-          <div className="mt-12 grid grid-cols-2 gap-6 max-w-md text-center text-slate-500">
+          <div className="mt-12 grid max-w-md grid-cols-2 gap-6 text-center text-foreground/60">
             <div>
               <Calendar className="mx-auto h-8 w-8 opacity-50" />
               <span className="mt-2 block">History</span>
@@ -1292,19 +1415,20 @@ export default function WorkplaceRoutinesDemoStyle() {
       {view === "overview" && (
         <div>
           {user?.role === "staff" && (
-            <div className="bg-yellow-100 text-yellow-800 py-2 text-center">
+            <div className="border-b border-accent/40 bg-accent/20 py-2 text-center text-accent-foreground">
               You are signed in as <strong>staff</strong>. Editing is disabled.
             </div>
           )}
-          <header className="border-b border-neutral-200 bg-white">
+          <header className="border-b-4 border-primary bg-background shadow-sm">
             <div className="mx-auto max-w-7xl px-6 py-8">
+              <div className="mb-4 h-1 w-40 rounded-full bg-accent" />
               <PageHeader
                 title={
                   <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-neutral-100">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/15 bg-primary/10">
                       <ClipboardList className="h-8 w-8 text-primary" />
                     </div>
-                    <span className="text-2xl font-heading font-semibold">
+                    <span className="text-2xl font-heading font-semibold text-primary">
                       PB INTERNE RUTINER
                     </span>
                   </div>
@@ -1359,20 +1483,31 @@ export default function WorkplaceRoutinesDemoStyle() {
                   </div>
                 }
               />
+              <nav className="mt-6 flex space-x-8 text-lg font-medium">
+                {[
+                  { key: "overview", label: "Overview" },
+                  { key: "work-log", label: "Work Log" },
+                  { key: "inventory", label: "Inventory" },
+                  { key: "workers", label: "Workers" },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setView(item.key as View)}
+                    className={cn(
+                      "pb-2",
+                      view === item.key
+                        ? "text-primary border-b-2 border-primary"
+                        : "text-foreground/60 hover:text-foreground"
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
             </div>
           </header>
 
           <main className="mx-auto max-w-7xl px-6 py-10">
-            <div className="relative mb-10 max-w-3xl">
-              <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
-              <Input
-                value={routineSearch}
-                onChange={(e) => setRoutineSearch(e.target.value)}
-                placeholder="Search routines..."
-                className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-2xl"
-              />
-            </div>
-
             <motion.div 
               className="grid gap-8 lg:grid-cols-3"
               initial="hidden"
@@ -1387,24 +1522,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 }
               }}
             >
-              {filteredRoutines.map((routine) => {
-                const completed = routine.tasks.filter((task) => task.completed).length;
-                const total = routine.tasks.length;
-                return (
-                  <ListCard
-                    key={routine.id}
-                    title={routine.title}
-                    emoji={routine.emoji}
-                    tag={routine.tag}
-                    accentClass={routine.color}
-                    progress={{ completed, total }}
-                    onClick={() => openRoutine(routine.id)}
-                    onSettings={() => { /* future settings */ }}
-                  />
-                );
-              })}
-
-              {/* Task Lists Cards */}
+              {/* only user‑created lists shown here */}
               {taskLists.map((list) => {
                 const completed = list.tasks.filter((t) => t.completed).length;
                 const total = list.tasks.length;
@@ -1412,7 +1530,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   <ListCard
                     key={list.id}
                     title={list.title}
-                    accentClass={list.color || ""}
+                    accentClass={getAccentClass(list.color || "red")}
                     progress={{ completed, total }}
                     onClick={() => {
                       setSelectedListId(list.id);
@@ -1420,9 +1538,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                     }}
                     onSettings={
                       user?.role === "admin"
-                        ? () => {
-                            /* future list settings */
-                          }
+                        ? () => openListSettings(list.id)
                         : undefined
                     }
                   />
@@ -1437,8 +1553,8 @@ export default function WorkplaceRoutinesDemoStyle() {
                   onClick={promptNewList}
                 >
                   <div className="flex flex-col items-center justify-center">
-                    <Plus className="h-10 w-10 text-slate-500" />
-                    <span className="mt-2 text-xl text-slate-500">Ny liste</span>
+                    <Plus className="h-10 w-10 text-primary" />
+                    <span className="mt-2 text-xl text-primary">Ny liste</span>
                   </div>
                 </ListCard>
               )}
@@ -1449,33 +1565,27 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "routine-detail" && selectedRoutine && (
         <div>
-          {/* always orange header to match Stengerutiner style */}
-      <div className="bg-orange-500 text-white">
-            <div className="mx-auto max-w-7xl px-6 py-10">
-              <button
-                onClick={() => setView("overview")}
-                className="mb-8 flex items-center gap-3 text-lg font-medium text-white/90 hover:text-white"
-              >
-                <ArrowLeft className="h-5 w-5" />
-                Back to Routines
-              </button>
-
+          <BrandedHeader
+            color={selectedRoutine.color}
+            back={() => setView("overview")}
+            title={
               <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex items-center gap-4">
                   <div className="text-4xl">{selectedRoutine.emoji}</div>
                   <h2 className="text-6xl font-bold tracking-tight">{selectedRoutine.title}</h2>
                 </div>
-
-                <div className="text-right">
-                  <div className="flex items-center justify-end gap-3 text-5xl font-bold">
-                    <CheckCircle2 className="h-9 w-9" />
-                    {selectedCompleted}/{selectedTotal}
-                  </div>
-                  <div className="mt-2 text-2xl text-white/80">completed</div>
-                </div>
               </div>
-            </div>
-          </div>
+            }
+            actions={
+              <div className="text-right">
+                <div className="flex items-center justify-end gap-3 text-5xl font-bold">
+                  <CheckCircle2 className="h-9 w-9" />
+                  {selectedCompleted}/{selectedTotal}
+                </div>
+                <div className="mt-2 text-2xl text-white/80">completed</div>
+              </div>
+            }
+          />
 
           <main className="mx-auto max-w-6xl px-6 py-10">
             <div className="mb-10 inline-flex rounded-2xl bg-slate-200 p-1">
@@ -1523,7 +1633,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                           {task.title}
                         </h3>
 
-                        <Badge className="rounded-full border-0 bg-blue-100 px-4 py-1 text-base text-blue-700">
+                        <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
                           {task.frequency}
                         </Badge>
                       </div>
@@ -1540,7 +1650,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "list-detail" && selectedList && (
         <div>
-          <div className={`${selectedList.color ? selectedList.color.replace("border-t-", "bg-") : "bg-orange-500"} text-white`}
+          <div className={`${getBgClass(selectedList.color)} text-white`}
           >
             <div className="mx-auto max-w-7xl px-6 py-10">
               <button
@@ -1569,8 +1679,8 @@ export default function WorkplaceRoutinesDemoStyle() {
                   </Button>
                   {user?.role === "admin" && (
                     <Button
-                      onClick={() => selectedListId && addTaskToList(selectedListId)}
-                      className="h-14 rounded-2xl bg-white px-6 text-xl font-semibold text-orange-500 hover:bg-white/90"
+                      onClick={() => selectedListId && promptAddTask(selectedListId)}
+                      className="h-14 rounded-2xl bg-white px-6 text-xl font-semibold text-primary hover:bg-white/90"
                     >
                       <Plus className="mr-3 h-6 w-6" />
                       Add Task
@@ -1590,7 +1700,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   description={task.description}
                   completed={task.completed}
                   onToggle={() => selectedListId && toggleTaskInList(selectedListId, task.id)}
-                  onEdit={() => selectedListId && editTaskInList(selectedListId, task)}
+                  onEdit={() => selectedListId && promptEditTask(selectedListId, task)}
                   onDelete={() => selectedListId && openDeleteModal(selectedListId, task.id, task.title)}
                 />
               ))}
@@ -1612,8 +1722,8 @@ export default function WorkplaceRoutinesDemoStyle() {
                   Back
                 </button>
 
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100">
-                  <BookOpen className="h-8 w-8 text-orange-600" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-gold-muted">
+                  <BookOpen className="h-8 w-8 text-accent-gold" />
                 </div>
 
                 <div>
@@ -1626,7 +1736,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
               {user?.role === "admin" ? (
                 <Button
-                  className="h-14 rounded-2xl bg-blue-500 px-6 text-2xl hover:bg-blue-600"
+                  className="h-14 rounded-2xl bg-primary px-6 text-2xl hover:bg-primary/90"
                   onClick={() => addLogEntry()}
                 >
                   <Plus className="mr-3 h-6 w-6" />
@@ -1634,7 +1744,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 </Button>
               ) : (
                 <Button
-                  className="h-14 rounded-2xl bg-blue-300 px-6 text-2xl"
+                  className="h-14 rounded-2xl bg-primary/20 px-6 text-2xl"
                   disabled
                 >
                   <Plus className="mr-3 h-6 w-6" />
@@ -1690,9 +1800,9 @@ export default function WorkplaceRoutinesDemoStyle() {
                 </CardContent>
               </Card>
 
-              <Card className="rounded-3xl border-2 border-blue-500 bg-white">
+              <Card className="rounded-3xl border-2 border-primary bg-white">
                 <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-blue-600">{logStats.batch}</div>
+                  <div className="text-5xl font-bold text-primary">{logStats.batch}</div>
                   <div className="mt-2 text-xl text-slate-500">LOT-sporing</div>
                   <div className="mt-4">
                     {user?.role === "admin" ? (
@@ -1712,7 +1822,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
               <Card className="rounded-3xl border border-slate-200 bg-white">
                 <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-amber-500">{logStats.compensation}</div>
+                  <div className="text-5xl font-bold text-accent-gold">{logStats.compensation}</div>
                   <div className="mt-2 text-xl text-slate-500">Kompensasjoner</div>
                   <div className="mt-4">
                     {user?.role === "admin" ? (
@@ -1760,9 +1870,9 @@ export default function WorkplaceRoutinesDemoStyle() {
                     (entry.type === "Deviation"
                       ? "border-l-red-500"
                       : entry.type === "Batch Tracing"
-                      ? "border-l-blue-500"
+                      ? "border-l-primary"
                       : entry.type === "Compensation"
-                      ? "border-l-amber-500"
+                      ? "border-l-accent-gold"
                       : "border-l-slate-400")
                   }
                 >
@@ -1775,7 +1885,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
                         <div className="min-w-0">
                           <div className="mb-3 flex flex-wrap items-center gap-3 text-lg text-slate-500">
-                            <Badge className="rounded-full border-0 bg-blue-100 px-4 py-1 text-base text-blue-700">
+                            <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
                               {entry.type}
                             </Badge>
                             <span>{entry.date}</span>
@@ -1785,7 +1895,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
                           <h3 className="mb-3 text-3xl font-semibold">{entry.title}</h3>
                           {entry.type === "Compensation" && entry.compensation ? (
-                            <div className="mb-3 space-y-2 rounded-md border border-amber-200 bg-amber-50 p-4">
+                            <div className="mb-3 space-y-2 rounded-md border border-accent-gold-muted bg-accent-gold-muted/50 p-4">
                               <div>
                                 <strong>Hva skjedde:</strong> {entry.compensation.reason}
                               </div>
@@ -1805,7 +1915,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                               <Badge
                                 key={pill}
                                 variant="outline"
-                                className="rounded-lg border-blue-200 bg-blue-50 px-3 py-1 text-base text-blue-700"
+                                className="rounded-lg border-primary/20 bg-primary/10 px-3 py-1 text-base text-primary/70"
                               >
                                 {pill}
                               </Badge>
@@ -1883,11 +1993,11 @@ export default function WorkplaceRoutinesDemoStyle() {
         <div>
           {inventorySubView === "main" ? (
             <>
-              <header className="border-b border-slate-200 bg-white">
+              <header className="border-b border-primary bg-white">
                 <div className="mx-auto flex max-w-7xl items-center gap-5 px-6 py-8">
                   <button
                     onClick={() => setView("overview")}
-                    className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
+                    className="flex items-center gap-2 text-xl text-primary hover:text-primary/80"
                   >
                     <ArrowLeft className="h-5 w-5" />
                     Back
@@ -1903,7 +2013,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                     onClick={() => setInventorySubView("bunner")}
                   >
                     <CardContent className="p-8 text-center">
-                      <Slice className="mx-auto h-12 w-12 text-green-600" />
+                      <Slice className="mx-auto h-12 w-12 text-primary" />
                       <h2 className="mt-4 text-3xl font-semibold">Bunner</h2>
                     </CardContent>
                   </Card>
@@ -1912,7 +2022,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                     onClick={() => setInventorySubView("ost")}
                   >
                     <CardContent className="p-8 text-center">
-                      <Pizza className="mx-auto h-12 w-12 text-orange-600" />
+                      <Pizza className="mx-auto h-12 w-12 text-secondary" />
                       <h2 className="mt-4 text-3xl font-semibold">Ost</h2>
                     </CardContent>
                   </Card>
@@ -1921,7 +2031,7 @@ export default function WorkplaceRoutinesDemoStyle() {
             </>
           ) : (
             <>
-              <header className="border-b border-slate-200 bg-white">
+              <header className="border-b border-primary bg-white">
                 <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 lg:flex-row lg:items-start lg:justify-between">
                   <div className="flex items-start gap-5">
                     <button
@@ -1929,14 +2039,14 @@ export default function WorkplaceRoutinesDemoStyle() {
                         setInventorySubView("main");
                         setView("inventory");
                       }}
-                      className="mt-4 flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
+                      className="mt-4 flex items-center gap-2 text-xl text-primary hover:text-primary/80"
                     >
                       <ArrowLeft className="h-5 w-5" />
                       Back
                     </button>
 
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-green-100">
-                      <Package className="h-8 w-8 text-green-600" />
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+                      <Package className="h-8 w-8 text-primary" />
                     </div>
 
                     <div>
@@ -2160,19 +2270,20 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "list-history" && selectedList && (
         <div>
-          <header className="border-b border-slate-200 bg-white">
+          <header className={`${getBgClass(selectedList.color)} text-white`}
+          >
             <div className="mx-auto max-w-6xl px-6 py-8">
               <div className="flex items-center gap-4">
                 <button
                   onClick={() => setView("list-detail")}
-                  className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
+                  className="flex items-center gap-2 text-xl text-white/90 hover:text-white"
                 >
                   <ArrowLeft className="h-5 w-5" />
                   Back
                 </button>
                 <div>
                   <h1 className="text-4xl font-bold">{selectedList.title} History</h1>
-                  <p className="text-2xl text-slate-500">Task completion history</p>
+                  <p className="text-2xl text-white/80">Task completion history</p>
                 </div>
               </div>
             </div>
@@ -2265,7 +2376,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           <DialogFooter className="mt-4">
             <Button
               variant="destructive"
-              className={cn(deleteStep === 1 ? "order-2" : "order-1", "bg-red-600 text-white hover:bg-red-700")}
+              className={cn(deleteStep === 1 ? "order-2" : "order-1", "bg-destructive text-white hover:bg-destructive/90")}
               onClick={() => handleDeleteChoice(false)}
             >
               Nei
@@ -2280,6 +2391,166 @@ export default function WorkplaceRoutinesDemoStyle() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* list settings dialog (choose edit or delete) */}
+      <Dialog open={isListSettingsOpen} onOpenChange={setIsListSettingsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>List options</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Button
+              className="w-full"
+              onClick={() => handleListSettingsAction("edit")}
+            >
+              Edit list
+            </Button>
+            <Button
+              className="w-full"
+              onClick={() => handleListSettingsAction("delete")}
+            >
+              Delete list
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* list deletion confirmation modal */}
+      <Dialog open={isDeleteListModalOpen} onOpenChange={setIsDeleteListModalOpen}>
+        <DialogContent className="sm:max-w-md bg-[#D97706] text-white">
+          <DialogHeader>
+            <DialogTitle>
+              {deleteListStep === 1 ? "Bekreft sletting" : "Endelig bekreftelse"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {deleteListStep === 1 && (
+              <p>
+                Er du sikker på at du vil slette listen "{deleteListInfo?.title}" og alle oppgaver?
+              </p>
+            )}
+            {deleteListStep === 2 && (
+              <p>
+                Dette fjerner listen permanent og fjerner all historikk. Trykk <strong>Ja</strong> for å fortsette.
+              </p>
+            )}
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="destructive"
+              className="order-2 bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => handleDeleteListChoice(false)}
+            >
+              Nei
+            </Button>
+            <Button
+              variant="default"
+              className="order-1 bg-green-600 text-white hover:bg-green-700"
+              onClick={() => handleDeleteListChoice(true)}
+            >
+              Ja
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* new-list creation dialog */}
+      <Dialog open={isNewListDialogOpen} onOpenChange={setIsNewListDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Name for new list</DialogTitle>
+            <DialogDescription>Provide a name, auto-reset option, and accent color.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              placeholder="List name"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  createNewList();
+                }
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <input
+                id="auto-reset"
+                type="checkbox"
+                checked={newListAutoReset}
+                onChange={(e) => setNewListAutoReset(e.target.checked)}
+              />
+              <label htmlFor="auto-reset">Auto-reset daily</label>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Accent color</label>
+              <ColorPicker
+                value={newListColor as ColorKey}
+                onChange={(c) => setNewListColor(c)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setIsNewListDialogOpen(false)}>Avbryt</Button>
+            <Button onClick={createNewList}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* edit-list dialog */}
+      <Dialog open={isEditListDialogOpen} onOpenChange={setIsEditListDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit list</DialogTitle>
+            <DialogDescription>Change name, auto-reset, or accent color.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={editListName}
+              onChange={(e) => setEditListName(e.target.value)}
+              placeholder="List name"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  applyEditList();
+                }
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <input
+                id="edit-auto-reset"
+                type="checkbox"
+                checked={editListAutoReset}
+                onChange={(e) => setEditListAutoReset(e.target.checked)}
+              />
+              <label htmlFor="edit-auto-reset">Auto-reset daily</label>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Accent color</label>
+              <ColorPicker
+                value={editListColor as ColorKey}
+                onChange={(c) => setEditListColor(c)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setIsEditListDialogOpen(false)}>Avbryt</Button>
+            <Button onClick={applyEditList}>OK</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* task create/edit dialog (replaces browser prompt) */}
+      <TaskDialog
+        open={isTaskDialogOpen}
+        onOpenChange={setIsTaskDialogOpen}
+        titleText={
+          taskDialogMode === "create" ? "Add task" : "Edit task"
+        }
+        initialTitle={taskDialogInitTitle}
+        initialDescription={taskDialogInitDescription}
+        onSubmit={handleTaskDialogSubmit}
+      />
 
       <Dialog open={isCompDialogOpen} onOpenChange={setIsCompDialogOpen}>
         <DialogContent className="sm:max-w-md">

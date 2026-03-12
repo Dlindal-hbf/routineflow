@@ -338,7 +338,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
-              className="bg-green-500 hover:bg-green-600 text-white"
+              className="bg-primary hover:bg-primary/90 text-white"
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
@@ -348,6 +348,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
           {!readOnly && (
             <Button
               variant="outline"
+              className="text-primary"
               onClick={() => {
                 if (onOpenArchive) onOpenArchive();
               else console.warn("onOpenArchive not provided");
@@ -423,7 +424,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
                   <th
                     key={m}
                     className={`border px-2 py-1 text-left ${
-                      isChangeMetric(m) ? "bg-yellow-50" : ""
+                      isChangeMetric(m) ? "bg-accent-gold-muted" : ""
                     }`}
                   >
                     {m}
@@ -441,7 +442,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
                     <td
                       key={m}
                       className={`border px-1 py-1 ${
-                        isChangeMetric(m) ? "bg-yellow-50" : ""
+                        isChangeMetric(m) ? "bg-accent-gold-muted" : ""
                       }`}
                     >
                       <Input

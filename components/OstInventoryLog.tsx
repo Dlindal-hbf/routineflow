@@ -372,7 +372,7 @@ export default function OstInventoryLog(props?: {
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
-              className="bg-green-500 hover:bg-green-600 text-white"
+              className="bg-primary hover:bg-primary/90 text-white"
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
@@ -380,7 +380,7 @@ export default function OstInventoryLog(props?: {
             </Button>
           )}
           {!readOnly && (
-            <Button variant="outline" onClick={() => onOpenArchive?.()}>
+            <Button variant="outline" className="text-primary" onClick={() => onOpenArchive?.()}>
               Storage area
             </Button>
           )}

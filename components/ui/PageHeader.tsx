@@ -21,7 +21,7 @@ export default function PageHeader({ title, subtitle, back, actions }: PageHeade
           )}
           <h1 className="text-2xl font-heading font-semibold">{title}</h1>
         </div>
-        {subtitle && <p className="text-sm text-neutral-600">{subtitle}</p>}
+        {subtitle && <p className="text-sm text-foreground/70">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
