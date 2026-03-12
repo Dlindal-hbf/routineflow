@@ -491,6 +491,19 @@ export default function WorkplaceRoutinesDemoStyle() {
         interpretColor(l.color as string) ||
         (l.color as string) ||
         "red",
+      // legacy data may omit resetEnabled, ensure it's a boolean
+      resetEnabled: !!l.resetEnabled,
+      // frequency must be defined for TaskList; default to "none"
+      frequency: l.frequency || "none",
+      // resetTime is required on TaskList; fallback to empty string
+      resetTime: l.resetTime || "",
+      // timezone is required; default to UTC
+      timezone: l.timezone || "UTC",
+      // convert legacy tasks to current Task type
+      tasks: l.tasks.map((t) => ({
+        ...t,
+        description: t.description || "",
+      })),
     }));
   };
 

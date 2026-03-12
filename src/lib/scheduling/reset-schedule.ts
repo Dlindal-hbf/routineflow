@@ -253,7 +253,7 @@ export function calculatePreviousPeriodStartAt(
   }
 
   if (policy.frequency === "monthly") {
-    const p = getTimeZoneParts(periodEndAt);
+    const p = getTimeZoneParts(periodEndAt, FIXED_TIMEZONE);
     const prevMonthDate = addCalendarMonths(
       { year: p.year, month: p.month, day: p.day },
       -1
