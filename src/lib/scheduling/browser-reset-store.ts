@@ -2,16 +2,20 @@
 
 import { processDueResets } from "@/src/lib/scheduling/reset-engine";
 import {
+  RecordMetadata,
+  RecordOrigin,
   RoutineFrequency,
   RoutineList,
   RoutineTask,
   RoutineTaskHistory,
 } from "@/src/lib/scheduling/reset-types";
 import { calculateNextResetAt } from "@/src/lib/scheduling/reset-schedule";
+import { createSeedLegacyTaskLists } from "@/src/lib/scheduling/seed-routine-records";
 
 export const ROUTINE_LISTS_KEY = "routine_lists.v1";
 export const ROUTINE_TASKS_KEY = "routine_tasks.v1";
 export const ROUTINE_TASK_HISTORY_KEY = "routine_task_history.v1";
+const ROUTINE_SEED_BOOTSTRAPPED_KEY = "routine_seed_bootstrapped.v1";
 
 const LEGACY_LISTS_KEY = "taskLists";
 export const DEFAULT_TIMEZONE = "Europe/Oslo";
@@ -21,6 +25,9 @@ export type LegacyTask = {
   title: string;
   description?: string;
   completed: boolean;
+  metadata?: RecordMetadata;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type LegacyTaskList = {
@@ -39,6 +46,9 @@ export type LegacyTaskList = {
   currentPeriodEndAt?: string;
   lastArchivedAt?: string;
   nextResetAt?: string;
+  metadata?: RecordMetadata;
+  createdAt?: string;
+  updatedAt?: string;
   tasks: LegacyTask[];
 };
 
@@ -58,6 +68,31 @@ function normalizeText(value: unknown, fallback = ""): string {
 
 function normalizeOptionalText(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function normalizeRecordOrigin(value: unknown, fallback: RecordOrigin = "admin-created"): RecordOrigin {
+  if (value === "seeded" || value === "imported" || value === "admin-created") {
+    return value;
+  }
+
+  return fallback;
+}
+
+function normalizeRecordMetadata(
+  value: unknown,
+  fallbackOrigin: RecordOrigin = "admin-created"
+): RecordMetadata {
+  if (!isRecord(value)) {
+    return { origin: fallbackOrigin };
+  }
+
+  return {
+    organizationId: normalizeOptionalText(value.organizationId),
+    departmentId: normalizeOptionalText(value.departmentId),
+    origin: normalizeRecordOrigin(value.origin, fallbackOrigin),
+    sourceTemplateId: normalizeOptionalText(value.sourceTemplateId),
+    createdBy: normalizeOptionalText(value.createdBy),
+  };
 }
 
 function normalizeFiniteNumber(value: unknown): number | undefined {
@@ -180,6 +215,9 @@ function normalizeLegacyTask(task: unknown, taskIndex: number): LegacyTask | nul
     title: normalizeText(task.title, `Task ${id}`),
     description: normalizeText(task.description, ""),
     completed: typeof task.completed === "boolean" ? task.completed : false,
+    metadata: normalizeRecordMetadata(task.metadata),
+    createdAt: normalizeOptionalText(task.createdAt),
+    updatedAt: normalizeOptionalText(task.updatedAt),
   };
 }
 
@@ -225,6 +263,9 @@ function normalizeLegacyTaskLists(value: unknown): LegacyTaskList[] {
         currentPeriodEndAt: normalizeOptionalText(list.currentPeriodEndAt),
         lastArchivedAt: normalizeOptionalText(list.lastArchivedAt),
         nextResetAt: normalizeOptionalText(list.nextResetAt),
+        metadata: normalizeRecordMetadata(list.metadata),
+        createdAt: normalizeOptionalText(list.createdAt),
+        updatedAt: normalizeOptionalText(list.updatedAt),
         tasks,
       },
     ];
@@ -244,6 +285,7 @@ function normalizeRoutineList(list: unknown, index: number): RoutineList | null 
     title: normalizeText(list.title, `Untitled list ${id}`),
     description: normalizeText(list.description, ""),
     color: normalizeText(list.color, "red"),
+    metadata: normalizeRecordMetadata(list.metadata),
     resetEnabled: typeof list.resetEnabled === "boolean" ? list.resetEnabled : false,
     frequency,
     resetTime: normalizeResetTime(list.resetTime),
@@ -292,9 +334,18 @@ function normalizeRoutineTask(
     description: normalizeText(task.description, ""),
     sortOrder: normalizeFiniteNumber(task.sortOrder) ?? index,
     isChecked: typeof task.isChecked === "boolean" ? task.isChecked : false,
+    metadata: normalizeRecordMetadata(task.metadata),
     createdAt: normalizeText(task.createdAt, new Date().toISOString()),
     updatedAt: normalizeText(task.updatedAt, new Date().toISOString()),
   };
+}
+
+function hasSeedBootstrapRun(): boolean {
+  return localStorage.getItem(ROUTINE_SEED_BOOTSTRAPPED_KEY) === "1";
+}
+
+function markSeedBootstrapRun(): void {
+  localStorage.setItem(ROUTINE_SEED_BOOTSTRAPPED_KEY, "1");
 }
 
 function normalizeRoutineTasks(value: unknown, listIds: Set<string>): RoutineTask[] {
@@ -398,6 +449,7 @@ function toRoutineList(list: LegacyTaskList, nowIso: string): RoutineList {
     title: list.title,
     description: list.description,
     color: list.color,
+    metadata: normalizeRecordMetadata(list.metadata),
     resetEnabled,
     frequency,
     resetTime: list.resetTime ?? "06:00",
@@ -408,8 +460,8 @@ function toRoutineList(list: LegacyTaskList, nowIso: string): RoutineList {
     currentPeriodEndAt: list.currentPeriodEndAt,
     lastArchivedAt: list.lastArchivedAt,
     nextResetAt: list.nextResetAt,
-    createdAt: nowIso,
-    updatedAt: nowIso,
+    createdAt: list.createdAt ?? nowIso,
+    updatedAt: list.updatedAt ?? nowIso,
   };
 
   if (base.resetEnabled && base.frequency !== "none" && !base.nextResetAt) {
@@ -441,8 +493,9 @@ function toRoutineTask(list: LegacyTaskList, task: LegacyTask, index: number, no
     description: task.description,
     sortOrder: index,
     isChecked: task.completed,
-    createdAt: nowIso,
-    updatedAt: nowIso,
+    metadata: normalizeRecordMetadata(task.metadata, normalizeRecordMetadata(list.metadata).origin),
+    createdAt: task.createdAt ?? nowIso,
+    updatedAt: task.updatedAt ?? nowIso,
   };
 }
 
@@ -464,6 +517,20 @@ function hydrateFromLegacyStorage(): {
   return { lists, tasks };
 }
 
+function hydrateFromSeedData(): {
+  lists: RoutineList[];
+  tasks: RoutineTask[];
+} {
+  const nowIso = new Date().toISOString();
+  const seededLegacyLists = createSeedLegacyTaskLists(nowIso);
+  const normalizedSeededLists = normalizeLegacyTaskLists(seededLegacyLists);
+
+  writeJson(LEGACY_LISTS_KEY, normalizedSeededLists);
+  const hydrated = hydrateFromLegacyStorage();
+  markSeedBootstrapRun();
+  return hydrated;
+}
+
 function getRoutineEntities(): {
   lists: RoutineList[];
   tasks: RoutineTask[];
@@ -471,15 +538,27 @@ function getRoutineEntities(): {
 } {
   let { lists, tasks, history } = readNormalizedRoutineEntities();
 
-  if (lists.length === 0) {
-    const legacyLists = readNormalizedLegacyTaskLists();
-    if (legacyLists.length === 0) {
-      return { lists, tasks, history };
-    }
+  if (lists.length > 0) {
+    markSeedBootstrapRun();
+    return { lists, tasks, history };
+  }
 
+  const legacyLists = readNormalizedLegacyTaskLists();
+  if (legacyLists.length > 0) {
+    markSeedBootstrapRun();
     const hydrated = hydrateFromLegacyStorage();
     lists = hydrated.lists;
     tasks = hydrated.tasks;
+    return { lists, tasks, history };
+  }
+
+  if (!hasSeedBootstrapRun()) {
+    const seeded = hydrateFromSeedData();
+    return {
+      lists: seeded.lists,
+      tasks: seeded.tasks,
+      history,
+    };
   }
 
   return { lists, tasks, history };
@@ -509,13 +588,17 @@ export function getLegacyTaskListsWithLiveState(): LegacyTaskList[] {
   return lists.map((list) => {
     const listTasks = (taskMap.get(list.id) ?? [])
       .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map((task) => {
+      .map((task, index) => {
         const [, legacyTaskId] = task.id.split(":");
+        const taskId = Number(legacyTaskId);
         return {
-          id: Number(legacyTaskId),
+          id: Number.isFinite(taskId) ? taskId : index + 1,
           title: task.title,
           description: task.description,
           completed: task.isChecked,
+          metadata: task.metadata,
+          createdAt: task.createdAt,
+          updatedAt: task.updatedAt,
         };
       });
 
@@ -524,6 +607,7 @@ export function getLegacyTaskListsWithLiveState(): LegacyTaskList[] {
       title: list.title,
       description: list.description,
       color: list.color,
+      metadata: list.metadata,
       resetEnabled: list.resetEnabled,
       frequency: list.frequency,
       resetTime: list.resetTime,
@@ -534,6 +618,8 @@ export function getLegacyTaskListsWithLiveState(): LegacyTaskList[] {
       currentPeriodEndAt: list.currentPeriodEndAt,
       lastArchivedAt: list.lastArchivedAt,
       nextResetAt: list.nextResetAt,
+      createdAt: list.createdAt,
+      updatedAt: list.updatedAt,
       autoReset: list.frequency === "daily" && list.resetEnabled,
       tasks: listTasks,
     };
@@ -556,11 +642,16 @@ export function saveLegacyTaskListsToRoutineStore(lists: LegacyTaskList[]): void
     const previous = previousRoutineLists.find(
       (candidate) => candidate.id === String(list.id)
     );
+    const normalizedMetadata = normalizeRecordMetadata(
+      list.metadata,
+      previous?.metadata.origin ?? "admin-created"
+    );
 
     return {
       ...toRoutineList(list, nowIso),
       // timezone fixed for the app
       timezone: DEFAULT_TIMEZONE,
+      metadata: normalizedMetadata,
       createdAt: previous?.createdAt ?? nowIso,
       updatedAt: nowIso,
     };
@@ -579,6 +670,10 @@ export function saveLegacyTaskListsToRoutineStore(lists: LegacyTaskList[]): void
         description: task.description,
         sortOrder: index,
         isChecked: task.completed,
+        metadata: normalizeRecordMetadata(
+          task.metadata,
+          normalizeRecordMetadata(list.metadata).origin
+        ),
         createdAt: prevTask?.createdAt ?? nowIso,
         updatedAt: nowIso,
       } as RoutineTask;

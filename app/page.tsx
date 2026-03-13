@@ -38,14 +38,18 @@ import TaskListHistory from "@/components/TaskListHistory"; // generic history v
 import ColorPicker from "@/components/ui/ColorPicker";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
 import ResetScheduleForm, { ResetScheduleValue } from "@/src/components/ResetScheduleForm";
-import { RoutineFrequency } from "@/src/lib/scheduling/reset-types";
+import { RecordMetadata, RecordOrigin, RoutineFrequency } from "@/src/lib/scheduling/reset-types";
 import { calculateNextResetAt } from "@/src/lib/scheduling/reset-schedule";
 import {
-  getLegacyTaskListsWithLiveState,
   processDueResetsInBrowserStorage,
-  saveLegacyTaskListsToRoutineStore,
   DEFAULT_TIMEZONE,
 } from "@/src/lib/scheduling/browser-reset-store";
+import {
+  importRoutineTemplateRecords,
+  loadTaskListRecords,
+  saveTaskListRecords,
+} from "@/src/lib/scheduling/routine-records-repo";
+import { ROUTINE_TEMPLATES } from "@/src/lib/scheduling/routine-templates";
 
 type View =
   | "overview"
@@ -72,6 +76,9 @@ type Task = {
   description: string;
   frequency?: Frequency; // only used by routines
   completed: boolean;
+  metadata?: RecordMetadata;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 // a collection of tasks that behaves like "Stengerutiner"
@@ -81,6 +88,7 @@ type TaskList = {
   title: string;
   description?: string;
   color?: ColorKey | string; // semantic color key (e.g. "blue") or legacy class
+  metadata?: RecordMetadata;
   resetEnabled: boolean;
   frequency: RoutineFrequency;
   resetTime: string;
@@ -91,6 +99,8 @@ type TaskList = {
   currentPeriodEndAt?: string;
   lastArchivedAt?: string;
   nextResetAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
   tasks: Task[];
 };
 
@@ -484,14 +494,36 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [hasLoadedTaskLists, setHasLoadedTaskLists] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
 
+  const ensureMetadata = (
+    value: RecordMetadata | undefined,
+    fallbackOrigin: RecordOrigin = "admin-created"
+  ): RecordMetadata => ({
+    origin:
+      value?.origin === "seeded" ||
+      value?.origin === "imported" ||
+      value?.origin === "admin-created"
+        ? value.origin
+        : fallbackOrigin,
+    sourceTemplateId: value?.sourceTemplateId,
+    createdBy: value?.createdBy,
+    organizationId: value?.organizationId,
+    departmentId: value?.departmentId,
+  });
+
+  const createAdminMetadata = (): RecordMetadata => ({
+    origin: "admin-created",
+    createdBy: user?.code ?? "admin",
+  });
+
   const loadTaskListsFromStore = (): TaskList[] => {
-    const loaded = getLegacyTaskListsWithLiveState();
+    const loaded = loadTaskListRecords();
     return loaded.map((l) => ({
       ...l,
       color:
         interpretColor(l.color as string) ||
         (l.color as string) ||
         "red",
+      metadata: ensureMetadata(l.metadata),
       // legacy data may omit resetEnabled, ensure it's a boolean
       resetEnabled: !!l.resetEnabled,
       // frequency must be defined for TaskList; default to "none"
@@ -504,6 +536,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       tasks: l.tasks.map((t) => ({
         ...t,
         description: t.description || "",
+        metadata: ensureMetadata(t.metadata, ensureMetadata(l.metadata).origin),
       })),
     }));
   };
@@ -520,7 +553,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
-    saveLegacyTaskListsToRoutineStore(taskLists);
+    saveTaskListRecords(taskLists);
   }, [hasLoadedTaskLists, taskLists]);
 
   // Run reset processing in a centralized module and hydrate updated live state.
@@ -798,14 +831,16 @@ export default function WorkplaceRoutinesDemoStyle() {
     if (!task) return;
 
     const newCompleted = !task.completed;
+    const nowIso = new Date().toISOString();
 
     setTaskLists((current) =>
       current.map((l) => {
         if (l.id !== listId) return l;
         return {
           ...l,
+          updatedAt: nowIso,
           tasks: l.tasks.map((t) =>
-            t.id === taskId ? { ...t, completed: newCompleted } : t
+            t.id === taskId ? { ...t, completed: newCompleted, updatedAt: nowIso } : t
           ),
         } as TaskList;
       })
@@ -967,6 +1002,12 @@ export default function WorkplaceRoutinesDemoStyle() {
   // default accent color for a freshly created list should be brand red
   const [newListColor, setNewListColor] = useState<ColorKey | "">("red");
 
+  // integrated create-routine dialog state (blank vs template)
+  const [isCreateRoutineDialogOpen, setIsCreateRoutineDialogOpen] = useState(false);
+  const [createRoutineMode, setCreateRoutineMode] = useState<"blank" | "template">("blank");
+  const [selectedTemplateIndex, setSelectedTemplateIndex] = useState<string>("");
+  const [createRoutineError, setCreateRoutineError] = useState<string | null>(null);
+
   // edit-list dialog state
   const [isEditListDialogOpen, setIsEditListDialogOpen] = useState(false);
   const [editListName, setEditListName] = useState("");
@@ -1006,10 +1047,21 @@ export default function WorkplaceRoutinesDemoStyle() {
     const list = findList(listId);
     if (!list) return;
     const nextId = Math.max(0, ...list.tasks.map((t) => t.id)) + 1;
-    const newTask: Task = { id: nextId, title, description, completed: false };
+    const nowIso = new Date().toISOString();
+    const newTask: Task = {
+      id: nextId,
+      title,
+      description,
+      completed: false,
+      metadata: createAdminMetadata(),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
     setTaskLists((prev) =>
       prev.map((l) =>
-        l.id === listId ? { ...l, tasks: [...l.tasks, newTask] } : l
+        l.id === listId
+          ? { ...l, updatedAt: nowIso, tasks: [...l.tasks, newTask] }
+          : l
       )
     );
   };
@@ -1020,13 +1072,15 @@ export default function WorkplaceRoutinesDemoStyle() {
     title: string,
     description: string
   ) => {
+    const nowIso = new Date().toISOString();
     setTaskLists((prev) =>
       prev.map((l) =>
         l.id === listId
           ? {
               ...l,
+              updatedAt: nowIso,
               tasks: l.tasks.map((t) =>
-                t.id === taskId ? { ...t, title, description } : t
+                t.id === taskId ? { ...t, title, description, updatedAt: nowIso } : t
               ),
             }
           : l
@@ -1048,22 +1102,57 @@ export default function WorkplaceRoutinesDemoStyle() {
 
   const promptNewList = () => {
     if (!requireAdmin()) return;
+    setCreateRoutineMode("blank");
+    setSelectedTemplateIndex("");
+    setCreateRoutineError(null);
+    setIsCreateRoutineDialogOpen(true);
+  };
+
+  const openBlankListCreationDialog = () => {
     setNewListName("");
     setNewListSchedule(defaultSchedule);
-    setNewListColor("");
+    setNewListColor("red");
     setIsNewListDialogOpen(true);
+  };
+
+  const handleCreateRoutine = () => {
+    if (createRoutineMode === "blank") {
+      setCreateRoutineError(null);
+      setIsCreateRoutineDialogOpen(false);
+      openBlankListCreationDialog();
+      return;
+    }
+
+    const templateIndex = Number.parseInt(selectedTemplateIndex, 10);
+    const template = Number.isNaN(templateIndex) ? undefined : ROUTINE_TEMPLATES[templateIndex];
+    if (!template) {
+      setCreateRoutineError("Please select a template.");
+      return;
+    }
+
+    const nextLists = importRoutineTemplateRecords(taskLists, template, templateIndex, {
+      createdBy: user?.code ?? "admin",
+    });
+
+    setTaskLists(nextLists);
+    setCreateRoutineError(null);
+    setIsCreateRoutineDialogOpen(false);
   };
 
   const createNewList = () => {
     const nameTrimmed = newListName.trim();
     if (!nameTrimmed) return;
     const nextId = Math.max(0, ...taskLists.map((l) => l.id)) + 1;
+    const nowIso = new Date().toISOString();
     setTaskLists((prev) => [
       ...prev,
       {
         id: nextId,
         title: nameTrimmed,
         description: undefined,
+        metadata: createAdminMetadata(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
         tasks: [],
         color: newListColor,
         ...buildScheduleFields(newListSchedule),
@@ -1076,6 +1165,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     if (settingsListId == null) return;
     const nameTrimmed = editListName.trim();
     if (!nameTrimmed) return;
+    const nowIso = new Date().toISOString();
     setTaskLists((prev) =>
       prev.map((l) =>
         l.id === settingsListId
@@ -1083,6 +1173,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               ...l,
               title: nameTrimmed,
               color: editListColor,
+              updatedAt: nowIso,
               ...buildScheduleFields(editListSchedule, l),
             }
           : l
@@ -1101,11 +1192,12 @@ export default function WorkplaceRoutinesDemoStyle() {
     const list = findList(listId);
     if (!list) return;
     const task = list.tasks.find((t) => t.id === taskId);
+    const nowIso = new Date().toISOString();
 
     setTaskLists((prev) =>
       prev.map((l) =>
         l.id === listId
-          ? { ...l, tasks: l.tasks.filter((t) => t.id !== taskId) }
+          ? { ...l, updatedAt: nowIso, tasks: l.tasks.filter((t) => t.id !== taskId) }
           : l
       )
     );
@@ -1442,18 +1534,6 @@ export default function WorkplaceRoutinesDemoStyle() {
                       <Package className="mr-3 h-6 w-6" />
                       Inventory
                     </Button>
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={promptNewList}
-                    >
-                      <Plus className="mr-3 h-6 w-6" />
-                      Ny liste
-                    </Button>
-                    <Button className="h-14 rounded-2xl bg-primary px-6 text-2xl hover:bg-primary/90">
-                      <Plus className="mr-3 h-6 w-6" />
-                      New Routine
-                    </Button>
                   </div>
                 }
               />
@@ -1496,7 +1576,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 }
               }}
             >
-              {/* only user‑created lists shown here */}
+              {/* unified live list records (seeded/imported/admin-created) */}
               {taskLists.map((list) => {
                 const completed = list.tasks.filter((t) => t.completed).length;
                 const total = list.tasks.length;
@@ -2424,6 +2504,68 @@ export default function WorkplaceRoutinesDemoStyle() {
             >
               Ja
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* create-routine choice dialog */}
+      <Dialog open={isCreateRoutineDialogOpen} onOpenChange={setIsCreateRoutineDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Routine</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 text-base">
+              <input
+                type="radio"
+                name="create-routine-mode"
+                checked={createRoutineMode === "blank"}
+                onChange={() => {
+                  setCreateRoutineMode("blank");
+                  setCreateRoutineError(null);
+                }}
+              />
+              <span>Blank routine</span>
+            </label>
+
+            <label className="flex items-center gap-3 text-base">
+              <input
+                type="radio"
+                name="create-routine-mode"
+                checked={createRoutineMode === "template"}
+                onChange={() => {
+                  setCreateRoutineMode("template");
+                  setCreateRoutineError(null);
+                }}
+              />
+              <span>From template</span>
+            </label>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Templates</label>
+              <Select
+                value={selectedTemplateIndex}
+                onValueChange={setSelectedTemplateIndex}
+                disabled={createRoutineMode !== "template"}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select template" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROUTINE_TEMPLATES.map((template, index) => (
+                    <SelectItem key={`${template.name}-${index}`} value={String(index)}>
+                      {template.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {createRoutineError && <p className="text-sm text-red-600">{createRoutineError}</p>}
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setIsCreateRoutineDialogOpen(false)}>Avbryt</Button>
+            <Button onClick={handleCreateRoutine}>Create</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

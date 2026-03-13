@@ -5,11 +5,22 @@ export type RoutineFrequency =
   | "biweekly"
   | "monthly";
 
+export type RecordOrigin = "seeded" | "imported" | "admin-created";
+
+export type RecordMetadata = {
+  organizationId?: string;
+  departmentId?: string;
+  origin: RecordOrigin;
+  sourceTemplateId?: string;
+  createdBy?: string;
+};
+
 export type RoutineList = {
   id: string;
   title: string;
   description?: string;
   color?: string;
+  metadata: RecordMetadata;
 
   resetEnabled: boolean;
   frequency: RoutineFrequency;
@@ -39,6 +50,8 @@ export type RoutineTask = {
   sortOrder: number;
 
   isChecked: boolean;
+
+  metadata: RecordMetadata;
 
   createdAt: string;
   updatedAt: string;
