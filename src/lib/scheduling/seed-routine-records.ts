@@ -1,7 +1,7 @@
 import type { LegacyTaskList } from "@/src/lib/scheduling/browser-reset-store";
 
 export function createSeedLegacyTaskLists(nowIso: string): LegacyTaskList[] {
-  return [
+  return ([
     {
       id: 1,
       title: "Daglige rutiner",
@@ -104,7 +104,7 @@ export function createSeedLegacyTaskLists(nowIso: string): LegacyTaskList[] {
         },
       ],
     },
-  ].map((list) => ({
+  ] as LegacyTaskList[]).map((list) => ({
     ...list,
     tasks: list.tasks.map((task) => ({ ...task })),
     metadata: {
@@ -115,5 +115,5 @@ export function createSeedLegacyTaskLists(nowIso: string): LegacyTaskList[] {
     currentPeriodEndAt: list.currentPeriodEndAt,
     lastArchivedAt: list.lastArchivedAt,
     nextResetAt: list.nextResetAt,
-  }));
+  })) as LegacyTaskList[];
 }

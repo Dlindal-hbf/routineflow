@@ -1130,11 +1130,15 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
-    const nextLists = importRoutineTemplateRecords(taskLists, template, templateIndex, {
+    // import writes legacy data and returns the raw legacy lists, which don't match our
+    // TaskList state type.  Instead reload from the store so we get properly normalized
+    // TaskList objects.
+    importRoutineTemplateRecords(taskLists, template, templateIndex, {
       createdBy: user?.code ?? "admin",
     });
 
-    setTaskLists(nextLists);
+    // refresh from repo after import
+    setTaskLists(loadTaskListsFromStore());
     setCreateRoutineError(null);
     setIsCreateRoutineDialogOpen(false);
   };
