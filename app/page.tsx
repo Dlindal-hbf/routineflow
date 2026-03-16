@@ -36,7 +36,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
 import ColorPicker from "@/components/ui/ColorPicker";
+import { buildMonthCalendar } from "@/lib/calendar-utils";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
+import {
+  compareDateKeys,
+  formatDateKey,
+  formatTimestamp,
+  getDateKeyFromTimestamp,
+  getTodayDateKey,
+  isDateKey,
+} from "@/lib/date-utils";
+import { cn } from "@/lib/utils";
 import ResetScheduleForm, { ResetScheduleValue } from "@/src/components/ResetScheduleForm";
 import { RecordMetadata, RecordOrigin, RoutineFrequency } from "@/src/lib/scheduling/reset-types";
 import { calculateNextResetAt } from "@/src/lib/scheduling/reset-schedule";
@@ -50,6 +60,7 @@ import {
   saveTaskListRecords,
 } from "@/src/lib/scheduling/routine-records-repo";
 import { ROUTINE_TEMPLATES } from "@/src/lib/scheduling/routine-templates";
+import type { DateKey } from "@/types/calendar";
 
 type View =
   | "overview"
@@ -183,7 +194,7 @@ function ArchiveList({
             <div>
               <div className="text-lg font-semibold">{snap.name}</div>
               <div className="text-sm text-slate-500">
-                {new Date(snap.createdAt).toLocaleString("no-NO")}
+                {formatTimestamp(snap.createdAt)}
               </div>
             </div>
             <div className="flex gap-2">
@@ -224,6 +235,61 @@ type WorkLogEntry = {
     signature: string;
   };
 };
+
+type HistoryEntry = {
+  timestamp: string;
+  dayKey: DateKey;
+  description: string;
+  category: string;
+  routine?: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function createHistoryEntry(
+  description: string,
+  category: string,
+  routine?: string,
+  timestamp: string = new Date().toISOString()
+): HistoryEntry {
+  return {
+    timestamp,
+    dayKey:
+      getDateKeyFromTimestamp(timestamp, { timeZone: DEFAULT_TIMEZONE }) ??
+      getTodayDateKey(DEFAULT_TIMEZONE),
+    description,
+    category,
+    routine,
+  };
+}
+
+function normalizeHistoryEntry(value: unknown): HistoryEntry | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const timestamp =
+    typeof value.timestamp === "string"
+      ? value.timestamp
+      : typeof value.date === "string"
+      ? value.date
+      : new Date().toISOString();
+  const dayKey =
+    typeof value.dayKey === "string" && isDateKey(value.dayKey)
+      ? value.dayKey
+      : getDateKeyFromTimestamp(timestamp, { timeZone: DEFAULT_TIMEZONE }) ??
+        getTodayDateKey(DEFAULT_TIMEZONE);
+
+  return {
+    timestamp,
+    dayKey,
+    description: typeof value.description === "string" ? value.description : "",
+    category: typeof value.category === "string" ? value.category : "Other",
+    routine: typeof value.routine === "string" ? value.routine : undefined,
+  };
+}
 
 const initialRoutines: Routine[] = [
   {
@@ -322,9 +388,6 @@ const workers = [
   { name: "Noah", role: "Kitchen" },
   { name: "Sofia", role: "Cleaning" },
 ];
-
-// utility for combining Tailwind classes
-import { cn } from "@/lib/utils";
 
 
 export default function WorkplaceRoutinesDemoStyle() {
@@ -471,13 +534,23 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [employee, setEmployee] = useState("");
 
   // history state for automated logging
-  const [history, setHistory] = useState<{date: string, description: string, category: string, routine?: string}[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
 
   // Load history from localStorage on mount
   useEffect(() => {
     const stored = localStorage.getItem("history");
     if (stored) {
-      setHistory(JSON.parse(stored));
+      try {
+        const parsed = JSON.parse(stored) as unknown;
+        if (Array.isArray(parsed)) {
+          setHistory(
+            parsed.flatMap((entry) => {
+              const normalized = normalizeHistoryEntry(entry);
+              return normalized ? [normalized] : [];
+            })
+          );
+        }
+      } catch {}
     }
   }, []);
 
@@ -487,7 +560,7 @@ export default function WorkplaceRoutinesDemoStyle() {
   }, [history]);
 
   // selected date for history/calendar filtering
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDateKey, setSelectedDateKey] = useState<DateKey | null>(null);
 
   // task lists state (each behaves like the original "Stengerutiner" list)
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
@@ -679,7 +752,10 @@ export default function WorkplaceRoutinesDemoStyle() {
         ...cur,
         { id: nextLogId(), title, details, type, author, date, pills },
       ]);
-      setHistory(prev => [{date, description: `Added a new ${type} entry: ${title}`, category: "Work Log"}, ...prev]);
+      setHistory((prev) => [
+        createHistoryEntry(`Added a new ${type} entry: ${title}`, "Work Log", undefined, date),
+        ...prev,
+      ]);
     }
   };
 
@@ -711,7 +787,10 @@ export default function WorkplaceRoutinesDemoStyle() {
           e.id === entry.id ? { ...e, title, details, type, author, pills } : e
         )
       );
-      setHistory(prev => [{date: new Date().toISOString(), description: `Edited ${entry.type} entry: ${entry.title}`, category: "Work Log"}, ...prev]);
+      setHistory((prev) => [
+        createHistoryEntry(`Edited ${entry.type} entry: ${entry.title}`, "Work Log"),
+        ...prev,
+      ]);
     }
   };
 
@@ -721,7 +800,10 @@ export default function WorkplaceRoutinesDemoStyle() {
     if (window.confirm("Delete this entry?")) {
       setWorkLog((cur) => cur.filter((e) => e.id !== id));
       if (entry) {
-        setHistory(prev => [{date: new Date().toISOString(), description: `Deleted ${entry.type} entry: ${entry.title}`, category: "Work Log"}, ...prev]);
+        setHistory((prev) => [
+          createHistoryEntry(`Deleted ${entry.type} entry: ${entry.title}`, "Work Log"),
+          ...prev,
+        ]);
       }
     }
   };
@@ -736,7 +818,10 @@ export default function WorkplaceRoutinesDemoStyle() {
       ...cur,
       { id: nextLogId(), title, details, type: "Deviation", author: employee, date, pills: [] },
     ]);
-    setHistory(prev => [{date, description: `Added a new Avvik entry: ${title}`, category: "Work Log"}, ...prev]);
+    setHistory((prev) => [
+      createHistoryEntry(`Added a new Avvik entry: ${title}`, "Work Log", undefined, date),
+      ...prev,
+    ]);
     setIsAvvikDialogOpen(false);
     setEmployee(""); // reset
   };
@@ -763,21 +848,13 @@ export default function WorkplaceRoutinesDemoStyle() {
         cur.map((e) => (e.id === editingCompId ? entry : e))
       );
       setHistory((prev) => [
-        {
-          date,
-          description: `Edited Compensation entry: ${entry.title}`,
-          category: "Work Log",
-        },
+        createHistoryEntry(`Edited Compensation entry: ${entry.title}`, "Work Log", undefined, date),
         ...prev,
       ]);
     } else {
       setWorkLog((cur) => [...cur, entry]);
       setHistory((prev) => [
-        {
-          date,
-          description: `Added a new Compensation entry: ${entry.title}`,
-          category: "Work Log",
-        },
+        createHistoryEntry(`Added a new Compensation entry: ${entry.title}`, "Work Log", undefined, date),
         ...prev,
       ]);
     }
@@ -802,12 +879,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (newCompleted) {
       setHistory((prev) => [
-        {
-          date: new Date().toISOString(),
-          description: `Completed task: ${task.title}`,
-          category: "Task",
-          routine: routine.title,
-        },
+        createHistoryEntry(`Completed task: ${task.title}`, "Task", routine.title),
         ...prev,
       ]);
     } else {
@@ -1208,12 +1280,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (task) {
       setHistory((prev) => [
-        {
-          date: new Date().toISOString(),
-          description: `Deleted task: ${task.title}`,
-          category: "Daily Task",
-          routine: list.title,
-        },
+        createHistoryEntry(`Deleted task: ${task.title}`, "Daily Task", list.title),
         ...prev,
       ]);
     }
@@ -1290,44 +1357,51 @@ export default function WorkplaceRoutinesDemoStyle() {
   // group history by date
   const groupedByDate = useMemo(() => {
     const groups: Record<string, typeof history> = {};
-    history.forEach(item => {
-      const dateObj = new Date(item.date);
-      const dateStr = dateObj.toLocaleDateString('no-NO'); // "08.03.2026"
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(item);
+    history.forEach((item) => {
+      if (!groups[item.dayKey]) {
+        groups[item.dayKey] = [];
+      }
+      groups[item.dayKey].push(item);
     });
     return groups;
   }, [history]);
 
+  const currentHistoryDateKey = getTodayDateKey(DEFAULT_TIMEZONE);
+
+  const historyCalendar = useMemo(
+    () =>
+      buildMonthCalendar(currentHistoryDateKey, {
+        locale: "no-NO",
+        weekStartsOn: "monday",
+        todayKey: currentHistoryDateKey,
+      }),
+    [currentHistoryDateKey]
+  );
+
   // for each date, group by category, and for Task, by routine
   const groupedHistory = useMemo(() => {
     const result: Record<string, Record<string, Record<string, typeof history>>> = {};
-    Object.entries(groupedByDate).forEach(([date, items]) => {
-      result[date] = {};
-      items.forEach(item => {
+    Object.entries(groupedByDate).forEach(([dayKey, items]) => {
+      result[dayKey] = {};
+      items.forEach((item) => {
         const cat = item.category;
-        if (!result[date][cat]) result[date][cat] = {};
-        const sub = item.category === "Task" ? (item.routine || "Other") : "All";
-        if (!result[date][cat][sub]) result[date][cat][sub] = [];
-        result[date][cat][sub].push(item);
+        if (!result[dayKey][cat]) result[dayKey][cat] = {};
+        const sub = item.category === "Task" ? item.routine || "Other" : "All";
+        if (!result[dayKey][cat][sub]) result[dayKey][cat][sub] = [];
+        result[dayKey][cat][sub].push(item);
       });
     });
-    // Sort each array of history items: by date descending, then description ascending, then routine ascending
-    Object.values(result).forEach(categories => {
-      Object.values(categories).forEach(subs => {
-        Object.values(subs).forEach(arr => {
+
+    Object.values(result).forEach((categories) => {
+      Object.values(categories).forEach((subs) => {
+        Object.values(subs).forEach((arr) => {
           arr.sort((a, b) => {
-            // First by date descending
-            const dateA = new Date(a.date).getTime();
-            const dateB = new Date(b.date).getTime();
-            if (dateA !== dateB) return dateB - dateA;
-            // Then by description ascending
+            const timestampCompare = b.timestamp.localeCompare(a.timestamp);
+            if (timestampCompare !== 0) return timestampCompare;
             if (a.description < b.description) return -1;
             if (a.description > b.description) return 1;
-            // Then by category ascending
             if (a.category < b.category) return -1;
             if (a.category > b.category) return 1;
-            // Then by routine ascending
             const routineA = a.routine || "";
             const routineB = b.routine || "";
             if (routineA < routineB) return -1;
@@ -1337,85 +1411,52 @@ export default function WorkplaceRoutinesDemoStyle() {
         });
       });
     });
+
     return result;
   }, [groupedByDate]);
 
-  const parseEuropeanDate = (dateStr: string): Date => {
-    const [day, month, year] = dateStr.split('.').map(Number);
-    return new Date(year, month - 1, day);
-  };
-
   const renderCalendar = () => {
-    const currentDate = new Date();
-    const year = currentDate.getFullYear();
-    const month = currentDate.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    const startDay = firstDay.getDay(); // 0 = Sunday
-
-    const days = [];
-    // Empty cells for days before the first day
-    for (let i = 0; i < startDay; i++) {
-      days.push(null);
-    }
-    // Days of the month
-    for (let day = 1; day <= daysInMonth; day++) {
-      days.push(day);
-    }
-
-    const hasHistory = (day: number | null) => {
-      if (!day) return false;
-      const dateStr = `${day.toString().padStart(2, '0')}.${(month + 1).toString().padStart(2, '0')}.${year}`;
-      return groupedHistory[dateStr] !== undefined;
-    };
+    const hasHistory = (dayKey: DateKey) => groupedHistory[dayKey] !== undefined;
 
     return (
       <div className="mb-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-2xl font-semibold">
-            {currentDate.toLocaleDateString('no-NO', { month: 'long', year: 'numeric' })}
+            {historyCalendar.monthLabel}
           </h2>
           <Button
-            onClick={() => setSelectedDate(null)}
-            variant={selectedDate ? "outline" : "default"}
+            onClick={() => setSelectedDateKey(null)}
+            variant={selectedDateKey ? "outline" : "default"}
             className="text-lg"
           >
             Show All
           </Button>
         </div>
         <div className="grid grid-cols-7 gap-2">
-          {['Man', 'Tir', 'Ons', 'Tor', 'Fre', 'Lør', 'Søn'].map(day => (
+          {historyCalendar.weekdayLabels.map((day) => (
             <div key={day} className="text-center font-semibold text-slate-600 py-2">
               {day}
             </div>
           ))}
-          {days.map((day, index) => (
+          {historyCalendar.weeks.flat().map((cell, index) => (
             <button
-              key={index}
+              key={cell?.dateKey ?? `empty-${index}`}
               onClick={() => {
-                if (day) {
-                  const date = new Date(year, month, day);
-                  setSelectedDate(date);
+                if (cell) {
+                  setSelectedDateKey(cell.dateKey);
                 }
               }}
               className={cn(
                 "btn-ghost h-12 w-12 text-center text-lg font-medium",
-                !day && "opacity-50 cursor-default",
-                hasHistory(day)
+                !cell && "opacity-50 cursor-default",
+                cell && hasHistory(cell.dateKey)
                   ? "bg-primary/20 text-primary"
                   : "text-neutral-400",
-                selectedDate &&
-                  day &&
-                  selectedDate.getDate() === day &&
-                  selectedDate.getMonth() === month &&
-                  selectedDate.getFullYear() === year
-                  ? "bg-primary text-white"
-                  : ""
+                cell && selectedDateKey === cell.dateKey ? "bg-primary text-white" : ""
               )}
-              disabled={!day}
+              disabled={!cell}
             >
-              {day}
+              {cell?.dayOfMonth ?? ""}
             </button>
           ))}
         </div>
@@ -1946,7 +1987,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                             <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
                               {entry.type}
                             </Badge>
-                            <span>{entry.date}</span>
+                            <span>{formatTimestamp(entry.date)}</span>
                             <span>·</span>
                             <span>{entry.author}</span>
                           </div>
@@ -2263,11 +2304,11 @@ export default function WorkplaceRoutinesDemoStyle() {
             {renderCalendar()}
             <div className="space-y-8">
               {Object.entries(groupedHistory)
-                .sort(([a], [b]) => parseEuropeanDate(b).getTime() - parseEuropeanDate(a).getTime())
-                .filter(([date]) => !selectedDate || date === selectedDate.toLocaleDateString('no-NO'))
-                .map(([date, categories]) => (
-                  <div key={date}>
-                    <h2 className="text-3xl font-semibold mb-6">{date}</h2>
+                .sort(([a], [b]) => compareDateKeys(b as DateKey, a as DateKey))
+                .filter(([dayKey]) => !selectedDateKey || dayKey === selectedDateKey)
+                .map(([dayKey, categories]) => (
+                  <div key={dayKey}>
+                    <h2 className="text-3xl font-semibold mb-6">{formatDateKey(dayKey as DateKey)}</h2>
                     <div className="space-y-6">
                       {Object.entries(categories).map(([category, subs]) => (
                         <div key={category}>
@@ -2288,7 +2329,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                                         <Card className="rounded-3xl border border-slate-200 bg-white">
                                           <CardContent className="p-4">
                                             <div className="text-lg text-slate-700">{item.description}</div>
-                                            <div className="text-sm text-slate-500 mt-1">{new Date(item.date).toLocaleString('no-NO')}</div>
+                                            <div className="text-sm text-slate-500 mt-1">{formatTimestamp(item.timestamp)}</div>
                                           </CardContent>
                                         </Card>
                                       </motion.div>
@@ -2309,7 +2350,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                                   <Card className="rounded-3xl border border-slate-200 bg-white">
                                     <CardContent className="p-6">
                                       <div className="text-xl text-slate-700">{item.description}</div>
-                                      <div className="text-sm text-slate-500 mt-1">{new Date(item.date).toLocaleString('no-NO')}</div>
+                                      <div className="text-sm text-slate-500 mt-1">{formatTimestamp(item.timestamp)}</div>
                                     </CardContent>
                                   </Card>
                                 </motion.div>

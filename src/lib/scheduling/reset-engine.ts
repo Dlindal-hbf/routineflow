@@ -10,6 +10,7 @@ import {
   calculateNextResetAt,
   calculatePreviousPeriodStartAt,
 } from "@/src/lib/scheduling/reset-schedule";
+import { toDateKeyInTimeZone } from "@/lib/date-utils";
 
 function createHistoryId(
   listId: string,
@@ -92,6 +93,10 @@ function archivePeriod(
   const periodStartAt =
     list.currentPeriodStartAt ??
     calculatePreviousPeriodStartAt(policy, periodEnd).toISOString();
+  const periodEndIso = periodEnd.toISOString();
+  const timeZone = policy.timezone || "Europe/Oslo";
+  const periodStartDateKey = toDateKeyInTimeZone(new Date(periodStartAt), timeZone);
+  const periodEndDateKey = toDateKeyInTimeZone(periodEnd, timeZone);
 
   const nextPeriodEnd = calculateNextResetAt(policy, periodEnd);
 
@@ -99,7 +104,7 @@ function archivePeriod(
   const history = [...existingHistory];
 
   for (const task of listTasks) {
-    const historyId = createHistoryId(list.id, task.id, periodStartAt, periodEnd.toISOString());
+    const historyId = createHistoryId(list.id, task.id, periodStartAt, periodEndIso);
     const alreadyArchived = history.some((record) => record.id === historyId);
 
     if (alreadyArchived) {
@@ -112,7 +117,9 @@ function archivePeriod(
       taskId: task.id,
       taskTitleSnapshot: task.title,
       periodStartAt,
-      periodEndAt: periodEnd.toISOString(),
+      periodEndAt: periodEndIso,
+      periodStartDateKey,
+      periodEndDateKey,
       archivedAt: now.toISOString(),
       status: task.isChecked ? "complete" : "incomplete",
     });
@@ -131,7 +138,7 @@ function archivePeriod(
   const updatedList: RoutineList = {
     ...list,
     lastArchivedAt: now.toISOString(),
-    currentPeriodStartAt: periodEnd.toISOString(),
+    currentPeriodStartAt: periodEndIso,
     currentPeriodEndAt: nextPeriodEnd?.toISOString(),
     nextResetAt: nextPeriodEnd?.toISOString(),
     updatedAt: now.toISOString(),

@@ -1,3 +1,5 @@
+import type { DateKey } from "@/types/calendar";
+
 export type RoutineFrequency =
   | "none"
   | "daily"
@@ -66,6 +68,8 @@ export type RoutineTaskHistory = {
 
   periodStartAt: string;
   periodEndAt: string;
+  periodStartDateKey?: DateKey;
+  periodEndDateKey?: DateKey;
 
   archivedAt: string;
 

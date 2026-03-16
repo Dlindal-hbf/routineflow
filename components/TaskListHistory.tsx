@@ -1,12 +1,20 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { buildMonthCalendar, shiftCalendarMonth } from "@/lib/calendar-utils";
 import {
+  getDateKeyFromTimestamp,
+  getStartOfMonthDateKey,
+  getTodayDateKey,
+  getWeekdayNames,
+} from "@/lib/date-utils";
+import {
+  DEFAULT_TIMEZONE,
   ROUTINE_TASK_HISTORY_KEY,
   ROUTINE_TASKS_KEY,
 } from "@/src/lib/scheduling/browser-reset-store";
@@ -14,6 +22,7 @@ import {
   RoutineTask,
   RoutineTaskHistory,
 } from "@/src/lib/scheduling/reset-types";
+import type { DateKey } from "@/types/calendar";
 
 type CalendarStatus = "complete" | "incomplete";
 
@@ -32,7 +41,9 @@ interface Props {
 export default function TaskListHistory({ listId, listTitle }: Props) {
   const [taskHistories, setTaskHistories] = useState<TaskHistoryView[]>([]);
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedMonthKey, setSelectedMonthKey] = useState<DateKey>(() =>
+    getStartOfMonthDateKey(getTodayDateKey(DEFAULT_TIMEZONE))
+  );
 
   const listIdAsString = String(listId);
 
@@ -77,7 +88,14 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
 
       const records: Record<string, CalendarStatus> = {};
       for (const record of taskRecords) {
-        const dateKey = record.periodEndAt.split("T")[0];
+        const dateKey =
+          record.periodEndDateKey ??
+          getDateKeyFromTimestamp(record.periodEndAt, {
+            timeZone: DEFAULT_TIMEZONE,
+          });
+        if (!dateKey) {
+          continue;
+        }
         records[dateKey] = record.status;
       }
 
@@ -91,13 +109,6 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
     setTaskHistories(views);
   }, [listIdAsString]);
 
-  const getDateKey = (d: Date): string => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  };
-
   const getRecordForDate = (
     taskId: string,
     date: string
@@ -106,49 +117,33 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
     return history?.records[date];
   };
 
-  // calendar helpers
-  const monthStart = new Date(
-    selectedDate.getFullYear(),
-    selectedDate.getMonth(),
-    1
+  const monthData = useMemo(
+    () =>
+      buildMonthCalendar(selectedMonthKey, {
+        locale: "no-NO",
+        weekStartsOn: "monday",
+        todayKey: getTodayDateKey(DEFAULT_TIMEZONE),
+      }),
+    [selectedMonthKey]
   );
-  const monthEnd = new Date(
-    selectedDate.getFullYear(),
-    selectedDate.getMonth() + 1,
-    0
+  const weekdayLabels = useMemo(
+    () =>
+      getWeekdayNames({
+        locale: "en-US",
+        format: "short",
+        weekStartsOn: "monday",
+        normalizeLabel: true,
+      }),
+    []
   );
-  const daysInMonth = monthEnd.getDate();
-  const startingDayOfWeek = monthStart.getDay(); // 0 = Sunday
-
-  const days: (number | null)[] = [];
-  for (let i = 0; i < startingDayOfWeek; i++) {
-    days.push(null);
-  }
-  for (let i = 1; i <= daysInMonth; i++) {
-    days.push(i);
-  }
-
-  const calendarWeeks: (number | null)[][] = [];
-  for (let i = 0; i < days.length; i += 7) {
-    calendarWeeks.push(days.slice(i, i + 7));
-  }
 
   const goToPreviousMonth = () => {
-    setSelectedDate(
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1)
-    );
+    setSelectedMonthKey((current) => shiftCalendarMonth(current, -1));
   };
 
   const goToNextMonth = () => {
-    setSelectedDate(
-      new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1)
-    );
+    setSelectedMonthKey((current) => shiftCalendarMonth(current, 1));
   };
-
-  const monthName = selectedDate.toLocaleDateString("no-NO", {
-    month: "long",
-    year: "numeric",
-  });
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -203,7 +198,7 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
                             <ChevronLeft className="h-5 w-5" />
                           </Button>
                           <h4 className="min-w-40 text-center text-lg font-semibold capitalize">
-                            {monthName}
+                            {monthData.monthLabel}
                           </h4>
                           <Button
                             variant="outline"
@@ -216,7 +211,7 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
                         </div>
 
                         <div className="mb-3 grid grid-cols-7 gap-2 text-center">
-                          {['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day) => (
+                          {weekdayLabels.map((day) => (
                             <div key={day} className="font-medium text-slate-600">
                               {day}
                             </div>
@@ -224,19 +219,13 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
                         </div>
 
                         <div className="space-y-2">
-                          {calendarWeeks.map((week, wi) => (
+                          {monthData.weeks.map((week, wi) => (
                             <div key={wi} className="grid grid-cols-7 gap-2">
-                              {week.map((day, di) => {
-                                if (day === null) {
+                              {week.map((cell, di) => {
+                                if (cell === null) {
                                   return <div key={di} className="h-12" />;
                                 }
-                                const date = new Date(
-                                  selectedDate.getFullYear(),
-                                  selectedDate.getMonth(),
-                                  day
-                                );
-                                const dateKey = getDateKey(date);
-                                const record = getRecordForDate(taskHist.taskId, dateKey);
+                                const record = getRecordForDate(taskHist.taskId, cell.dateKey);
                                 const isComplete = record === "complete";
                                 const isIncomplete = record === "incomplete";
                                 return (
@@ -251,7 +240,7 @@ export default function TaskListHistory({ listId, listTitle }: Props) {
                                         : "border-slate-200 bg-white text-slate-700"
                                     }`}
                                   >
-                                    {day}
+                                    {cell.dayOfMonth}
                                   </motion.div>
                                 );
                               })}

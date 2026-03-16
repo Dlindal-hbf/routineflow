@@ -3,6 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
 import {
   Select,
   SelectContent,
@@ -63,6 +64,11 @@ function getTodayName(): string {
   // convert to index in days array where Monday=0
   const idx = (day + 6) % 7;
   return days[idx];
+}
+
+function formatSnapshotName(date: Date, includePrefix = false): string {
+  const baseName = `${formatDate(date)} (${getWeekdayName(date, { locale: "no-NO" })})`;
+  return includePrefix ? `Inventory ${baseName}` : baseName;
 }
 
 // metrics that should be grouped as "Endringer" for clarity
@@ -164,8 +170,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
             .map((snapshot) => {
               const cast = snapshot as Partial<InventorySnapshot>;
               const fallbackDate = new Date(cast.createdAt || Date.now());
-              const fallbackWeekday = fallbackDate.toLocaleDateString("no-NO", { weekday: "long" });
-              const fallbackName = `Inventory ${fallbackDate.toLocaleDateString("no-NO")} (${fallbackWeekday})`;
+              const fallbackName = formatSnapshotName(fallbackDate, true);
               return {
                 id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
                 name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
@@ -216,8 +221,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
               .map((snapshot) => {
                 const cast = snapshot as Partial<InventorySnapshot>;
                 const fallbackDate = new Date(cast.createdAt || Date.now());
-                const fallbackWeekday = fallbackDate.toLocaleDateString("no-NO", { weekday: "long" });
-                const fallbackName = `Inventory ${fallbackDate.toLocaleDateString("no-NO")} (${fallbackWeekday})`;
+                const fallbackName = formatSnapshotName(fallbackDate, true);
                 return {
                   id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
                   name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
@@ -312,9 +316,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
   const saveSnapshot = () => {
     const now = new Date();
     const iso = now.toISOString();
-    const dateStr = now.toLocaleDateString("no-NO");
-    const weekday = now.toLocaleDateString("no-NO", { weekday: "long" });
-    const name = `${dateStr} (${weekday})`;
+    const name = formatSnapshotName(now);
     const snapshot: InventorySnapshot = {
       id: getSnapshotId(),
       name,
@@ -363,7 +365,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <Badge variant="outline">Read only snapshot</Badge>
             <span className="text-sm text-slate-600">
-              {activeSnapshot.name} - {new Date(activeSnapshot.createdAt).toLocaleString("no-NO")}
+              {activeSnapshot.name} - {formatTimestamp(activeSnapshot.createdAt)}
             </span>
           </div>
         )}

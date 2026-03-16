@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
 import {
   Select,
   SelectContent,
@@ -22,6 +23,10 @@ type OstMetric =
   | "Avvik";
 
 type OstProduct = "Mozzarella" | "Cheddar" | "Pizzamix" | "Parmesan";
+
+function formatSnapshotName(date: Date): string {
+  return `${formatDate(date)} (${getWeekdayName(date, { locale: "no-NO" })})`;
+}
 
 type OstDayMeta = {
   signature: string;
@@ -203,7 +208,7 @@ export default function OstInventoryLog(props?: {
             .map((snapshot) => {
               const cast = snapshot as Partial<OstSnapshot>;
               const fallbackDate = new Date(cast.createdAt || Date.now());
-              const fallbackName = `${fallbackDate.toLocaleDateString("no-NO")} (${fallbackDate.toLocaleDateString("no-NO", { weekday: "long" })})`;
+              const fallbackName = formatSnapshotName(fallbackDate);
               return {
                 id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
                 name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
@@ -260,7 +265,7 @@ export default function OstInventoryLog(props?: {
               .map((snapshot) => {
                 const cast = snapshot as Partial<OstSnapshot>;
                 const fallbackDate = new Date(cast.createdAt || Date.now());
-                const fallbackName = `${fallbackDate.toLocaleDateString("no-NO")} (${fallbackDate.toLocaleDateString("no-NO", { weekday: "long" })})`;
+                const fallbackName = formatSnapshotName(fallbackDate);
                 return {
                   id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
                   name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
@@ -344,7 +349,7 @@ export default function OstInventoryLog(props?: {
 
   const saveSnapshot = () => {
     const now = new Date();
-    const name = `${now.toLocaleDateString("no-NO")} (${now.toLocaleDateString("no-NO", { weekday: "long" })})`;
+    const name = formatSnapshotName(now);
     const snapshot: OstSnapshot = {
       id: getSnapshotId(),
       name,
@@ -390,7 +395,7 @@ export default function OstInventoryLog(props?: {
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <Badge variant="outline">Read only snapshot</Badge>
             <span className="text-sm text-slate-600">
-              {activeSnapshot.name} - {new Date(activeSnapshot.createdAt).toLocaleString("no-NO")}
+              {activeSnapshot.name} - {formatTimestamp(activeSnapshot.createdAt)}
             </span>
           </div>
         )}

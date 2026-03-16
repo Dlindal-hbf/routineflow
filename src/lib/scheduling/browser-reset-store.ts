@@ -1,5 +1,6 @@
 "use client";
 
+import { getDateKeyFromTimestamp, isDateKey } from "@/lib/date-utils";
 import { processDueResets } from "@/src/lib/scheduling/reset-engine";
 import {
   RecordMetadata,
@@ -371,6 +372,16 @@ function normalizeRoutineTaskHistory(value: unknown): RoutineTaskHistory[] {
     const status = entry.status === "complete" || entry.status === "incomplete"
       ? entry.status
       : "incomplete";
+    const periodStartAt = normalizeText(entry.periodStartAt, "");
+    const periodEndAt = normalizeText(entry.periodEndAt, "");
+    const periodStartDateKey =
+      typeof entry.periodStartDateKey === "string" && isDateKey(entry.periodStartDateKey)
+        ? entry.periodStartDateKey
+        : getDateKeyFromTimestamp(periodStartAt, { timeZone: DEFAULT_TIMEZONE }) ?? undefined;
+    const periodEndDateKey =
+      typeof entry.periodEndDateKey === "string" && isDateKey(entry.periodEndDateKey)
+        ? entry.periodEndDateKey
+        : getDateKeyFromTimestamp(periodEndAt, { timeZone: DEFAULT_TIMEZONE }) ?? undefined;
 
     return [
       {
@@ -378,8 +389,10 @@ function normalizeRoutineTaskHistory(value: unknown): RoutineTaskHistory[] {
         listId: normalizeText(entry.listId),
         taskId: normalizeText(entry.taskId),
         taskTitleSnapshot: normalizeText(entry.taskTitleSnapshot, ""),
-        periodStartAt: normalizeText(entry.periodStartAt, ""),
-        periodEndAt: normalizeText(entry.periodEndAt, ""),
+        periodStartAt,
+        periodEndAt,
+        periodStartDateKey,
+        periodEndDateKey,
         archivedAt: normalizeText(entry.archivedAt, ""),
         status,
       },

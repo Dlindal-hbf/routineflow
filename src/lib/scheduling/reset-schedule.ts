@@ -1,10 +1,10 @@
 import { ResetSchedulePolicy } from "@/src/lib/scheduling/reset-types";
+import type { CalendarDateParts } from "@/types/calendar";
 
 // timezone is fixed for the entire application
 const FIXED_TIMEZONE = "Europe/Oslo";
 
-
-type CalendarDate = { year: number; month: number; day: number };
+type CalendarDate = CalendarDateParts;
 
 type TimeParts = { hour: number; minute: number };
 
