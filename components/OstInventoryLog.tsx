@@ -4,14 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { AppSelect } from "@/components/ui/app-select";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 type OstMetric =
   | "Antall gram"
@@ -402,18 +396,14 @@ export default function OstInventoryLog(props?: {
 
         <div className="mb-6 flex items-center gap-4">
           <span className="font-medium">Dag:</span>
-          <Select value={selectedDay} onValueChange={(v) => setSelectedDay(v)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Velg dag" />
-            </SelectTrigger>
-            <SelectContent>
-              {days.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AppSelect
+            value={selectedDay}
+            onValueChange={(nextValue) => setSelectedDay(nextValue)}
+            options={days.map((day) => ({ value: day, label: day }))}
+            placeholder="Velg dag"
+            size="sm"
+            className="w-[160px]"
+          />
         </div>
 
         <div className="overflow-auto">

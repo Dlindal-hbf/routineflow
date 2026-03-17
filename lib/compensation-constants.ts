@@ -50,6 +50,18 @@ export const COMPENSATION_STATUS_BADGE_CLASS_NAMES: Record<
   expired: "border-slate-300 bg-slate-100 text-slate-600",
 };
 
+export const COMPENSATION_STATUS_TONE_CLASS_NAMES: Record<
+  CompensationStatus,
+  string
+> = {
+  pending: "bg-slate-400",
+  approved: "bg-primary",
+  ready_for_claim: "bg-accent-gold",
+  completed: "bg-primary",
+  cancelled: "bg-red-500",
+  expired: "bg-slate-500",
+};
+
 export const COMPENSATION_TYPES: CompensationType[] = [
   "gift_card",
   "replacement_product",
@@ -65,6 +77,15 @@ export const COMPENSATION_TYPE_LABELS: Record<CompensationType, string> = {
   store_credit: "Store credit",
   other: "Other",
 };
+
+export const COMPENSATION_TYPE_TONE_CLASS_NAMES: Record<CompensationType, string> =
+  {
+    gift_card: "bg-accent-gold",
+    replacement_product: "bg-primary",
+    immediate_fix: "bg-emerald-500",
+    store_credit: "bg-sky-500",
+    other: "bg-slate-400",
+  };
 
 export const COMPENSATION_ISSUE_CATEGORIES: CompensationIssueCategory[] = [
   "wrong_item",
@@ -87,6 +108,19 @@ export const COMPENSATION_ISSUE_CATEGORY_LABELS: Record<
   service_issue: "Service issue",
   delay: "Delay",
   other: "Other",
+};
+
+export const COMPENSATION_ISSUE_CATEGORY_TONE_CLASS_NAMES: Record<
+  CompensationIssueCategory,
+  string
+> = {
+  wrong_item: "bg-sky-500",
+  damaged_item: "bg-amber-500",
+  quality_issue: "bg-primary",
+  missing_item: "bg-slate-500",
+  service_issue: "bg-violet-500",
+  delay: "bg-orange-500",
+  other: "bg-slate-400",
 };
 
 export const COMPENSATION_DATE_FILTER_OPTIONS: Array<{

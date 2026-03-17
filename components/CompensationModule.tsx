@@ -11,19 +11,27 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AppSelect } from "@/components/ui/app-select";
 import HistoryEmptyState from "@/components/history/HistoryEmptyState";
 import CompensationArchiveView from "@/components/CompensationArchiveView";
 import CompensationCaseCard from "@/components/CompensationCaseCard";
 import CompensationCaseDetailDialog from "@/components/CompensationCaseDetailDialog";
 import CompensationCaseFormDialog from "@/components/CompensationCaseFormDialog";
 import {
+  compensationIssueFilterOptions,
+  compensationStatusFilterOptions,
+  compensationTypeFilterOptions,
+  renderCompensationIssueOption,
+  renderCompensationIssueValue,
+  renderCompensationStatusOption,
+  renderCompensationStatusValue,
+  renderCompensationTypeOption,
+  renderCompensationTypeValue,
+} from "@/components/CompensationSelectContent";
+import {
   COMPENSATION_DATE_FILTER_OPTIONS,
-  COMPENSATION_ISSUE_CATEGORIES,
   COMPENSATION_SORT_OPTIONS,
-  COMPENSATION_STATUSES,
   COMPENSATION_TABS,
-  COMPENSATION_TYPES,
   DEFAULT_COMPENSATION_FORM_VALUE,
 } from "@/lib/compensation-constants";
 import {
@@ -39,9 +47,6 @@ import { useCompensationCases } from "@/lib/use-compensation-cases";
 import {
   countCompletedCompensationCasesToday,
   filterCompensationCases,
-  getCompensationIssueCategoryLabel,
-  getCompensationStatusLabel,
-  getCompensationTypeLabel,
   isCompensationEditable,
   resolveCompensationStatus,
   selectActiveCompensationCases,
@@ -301,7 +306,7 @@ export default function CompensationModule({
             />
           </div>
 
-          <Select
+          <AppSelect
             value={filters.status}
             onValueChange={(nextValue) =>
               setFilters((current) => ({
@@ -309,21 +314,14 @@ export default function CompensationModule({
                 status: nextValue as CompensationCaseFilters["status"],
               }))
             }
-          >
-            <SelectTrigger className="h-16 w-full rounded-2xl bg-white text-base">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              {COMPENSATION_STATUSES.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {getCompensationStatusLabel(status)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={compensationStatusFilterOptions}
+            size="lg"
+            triggerLabel="Status"
+            renderValue={renderCompensationStatusValue}
+            renderOption={renderCompensationStatusOption}
+          />
 
-          <Select
+          <AppSelect
             value={filters.compensationType}
             onValueChange={(nextValue) =>
               setFilters((current) => ({
@@ -331,21 +329,14 @@ export default function CompensationModule({
                 compensationType: nextValue as CompensationCaseFilters["compensationType"],
               }))
             }
-          >
-            <SelectTrigger className="h-16 w-full rounded-2xl bg-white text-base">
-              <SelectValue placeholder="Type" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
-              {COMPENSATION_TYPES.map((type) => (
-                <SelectItem key={type} value={type}>
-                  {getCompensationTypeLabel(type)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={compensationTypeFilterOptions}
+            size="lg"
+            triggerLabel="Type"
+            renderValue={renderCompensationTypeValue}
+            renderOption={renderCompensationTypeOption}
+          />
 
-          <Select
+          <AppSelect
             value={filters.issueCategory}
             onValueChange={(nextValue) =>
               setFilters((current) => ({
@@ -353,22 +344,15 @@ export default function CompensationModule({
                 issueCategory: nextValue as CompensationCaseFilters["issueCategory"],
               }))
             }
-          >
-            <SelectTrigger className="h-16 w-full rounded-2xl bg-white text-base">
-              <SelectValue placeholder="Issue" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All issues</SelectItem>
-              {COMPENSATION_ISSUE_CATEGORIES.map((category) => (
-                <SelectItem key={category} value={category}>
-                  {getCompensationIssueCategoryLabel(category)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={compensationIssueFilterOptions}
+            size="lg"
+            triggerLabel="Issue"
+            renderValue={renderCompensationIssueValue}
+            renderOption={renderCompensationIssueOption}
+          />
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-            <Select
+            <AppSelect
               value={filters.dateRange}
               onValueChange={(nextValue) =>
                 setFilters((current) => ({
@@ -376,34 +360,18 @@ export default function CompensationModule({
                   dateRange: nextValue as CompensationCaseFilters["dateRange"],
                 }))
               }
-            >
-              <SelectTrigger className="h-16 w-full rounded-2xl bg-white text-base">
-                <SelectValue placeholder="Date" />
-              </SelectTrigger>
-              <SelectContent>
-                {COMPENSATION_DATE_FILTER_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={COMPENSATION_DATE_FILTER_OPTIONS}
+              size="lg"
+              triggerLabel="Date"
+            />
 
-            <Select
+            <AppSelect
               value={sortKey}
               onValueChange={(nextValue) => setSortKey(nextValue as CompensationSortKey)}
-            >
-              <SelectTrigger className="h-16 w-full rounded-2xl bg-white text-base">
-                <SelectValue placeholder="Sort" />
-              </SelectTrigger>
-              <SelectContent>
-                {COMPENSATION_SORT_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              options={COMPENSATION_SORT_OPTIONS}
+              size="lg"
+              triggerLabel="Sort"
+            />
           </div>
         </div>
 

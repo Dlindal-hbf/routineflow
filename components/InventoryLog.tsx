@@ -2,15 +2,9 @@ import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { AppSelect } from "@/components/ui/app-select";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 export type Category = "Stor" | "Medium" | "Liten" | "Glutenfri" | "Tynn";
 export type Metric =
@@ -372,18 +366,14 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
 
         <div className="flex items-center gap-4 mb-6">
           <span className="font-medium">Dag:</span>
-          <Select value={selectedDay} onValueChange={(v) => setSelectedDay(v)}>
-            <SelectTrigger className="w-[140px]">
-              <SelectValue placeholder="Velg dag" />
-            </SelectTrigger>
-            <SelectContent>
-              {days.map((d) => (
-                <SelectItem key={d} value={d}>
-                  {d}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <AppSelect
+            value={selectedDay}
+            onValueChange={(nextValue) => setSelectedDay(nextValue)}
+            options={days.map((day) => ({ value: day, label: day }))}
+            placeholder="Velg dag"
+            size="sm"
+            className="w-[160px]"
+          />
         </div>
 
         <div className="overflow-auto">

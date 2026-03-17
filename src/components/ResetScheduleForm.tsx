@@ -2,7 +2,7 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AppSelect, type AppSelectOption } from "@/components/ui/app-select";
 import { RoutineFrequency } from "@/src/lib/scheduling/reset-types";
 
 export type ResetScheduleValue = {
@@ -20,14 +20,22 @@ interface Props {
   onChange: (next: ResetScheduleValue) => void;
 }
 
-const weekdayOptions = [
-  { label: "Sunday", value: 0 },
-  { label: "Monday", value: 1 },
-  { label: "Tuesday", value: 2 },
-  { label: "Wednesday", value: 3 },
-  { label: "Thursday", value: 4 },
-  { label: "Friday", value: 5 },
-  { label: "Saturday", value: 6 },
+const frequencyOptions: AppSelectOption<RoutineFrequency>[] = [
+  { label: "No automatic reset", value: "none" },
+  { label: "Daily", value: "daily" },
+  { label: "Weekly", value: "weekly" },
+  { label: "Every 2 weeks", value: "biweekly" },
+  { label: "Monthly", value: "monthly" },
+];
+
+const weekdayOptions: AppSelectOption<string>[] = [
+  { label: "Sunday", value: "0" },
+  { label: "Monday", value: "1" },
+  { label: "Tuesday", value: "2" },
+  { label: "Wednesday", value: "3" },
+  { label: "Thursday", value: "4" },
+  { label: "Friday", value: "5" },
+  { label: "Saturday", value: "6" },
 ];
 
 export default function ResetScheduleForm({
@@ -53,21 +61,12 @@ export default function ResetScheduleForm({
 
       <div className="space-y-2">
         <Label>Frequency</Label>
-        <Select
+        <AppSelect
           value={value.frequency}
           onValueChange={(next) => update({ frequency: next as RoutineFrequency })}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder="Select frequency" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="none">none</SelectItem>
-            <SelectItem value="daily">daily</SelectItem>
-            <SelectItem value="weekly">weekly</SelectItem>
-            <SelectItem value="biweekly">biweekly</SelectItem>
-            <SelectItem value="monthly">monthly</SelectItem>
-          </SelectContent>
-        </Select>
+          options={frequencyOptions}
+          placeholder="Select frequency"
+        />
       </div>
 
       <div className="space-y-2">
@@ -83,21 +82,11 @@ export default function ResetScheduleForm({
       {(value.frequency === "weekly" || value.frequency === "biweekly") && (
         <div className="space-y-2">
           <Label>Day of week</Label>
-          <Select
+          <AppSelect
             value={String(value.resetDayOfWeek ?? 1)}
             onValueChange={(next) => update({ resetDayOfWeek: Number(next) })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {weekdayOptions.map((opt) => (
-                <SelectItem key={opt.value} value={String(opt.value)}>
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            options={weekdayOptions}
+          />
         </div>
       )}
 

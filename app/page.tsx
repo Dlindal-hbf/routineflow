@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/button";
 import InventoryLog from "@/components/InventoryLog";
 import OstInventoryLog from "@/components/OstInventoryLog";
 import { Badge } from "@/components/ui/badge";
+import { AppSelect, type AppSelectOption } from "@/components/ui/app-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
@@ -79,6 +80,14 @@ type View =
 
 type Frequency = "Daily" | "Weekly" | "Bi-weekly" | "Monthly";
 type LogType = "Deviation" | "Batch Tracing" | "Compensation" | "Other";
+
+const logTypeFilterOptions: AppSelectOption<LogType | "All">[] = [
+  { value: "All", label: "All entries" },
+  { value: "Batch Tracing", label: "LOT-sporing" },
+  { value: "Deviation", label: "Avvik" },
+  { value: "Compensation", label: "Kompensasjoner" },
+  { value: "Other", label: "Other" },
+];
 
 // individual history record for a task
 
@@ -1642,17 +1651,15 @@ export default function WorkplaceRoutinesDemoStyle() {
                 />
               </div>
 
-              <select
+              <AppSelect
                 value={logTypeFilter}
-                onChange={(e) => setLogTypeFilter(e.target.value as LogType | "All")}
-                className="h-16 rounded-2xl border border-slate-200 bg-white px-5 text-2xl outline-none"
-              >
-                <option value="All">All</option>
-                <option value="Batch Tracing">LOT-sporing</option>
-                <option value="Deviation">Avvik</option>
-                <option value="Compensation">Kompensasjoner</option>
-                <option value="Other">Other</option>
-              </select>
+                onValueChange={(nextValue) =>
+                  setLogTypeFilter(nextValue as LogType | "All")
+                }
+                options={logTypeFilterOptions}
+                size="lg"
+                triggerLabel="Entry type"
+              />
             </div>
 
             <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">

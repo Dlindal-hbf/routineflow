@@ -5,21 +5,60 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AppSelect, type AppSelectOption } from "@/components/ui/app-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  COMPENSATION_ISSUE_CATEGORIES,
-  COMPENSATION_TYPES,
-} from "@/lib/compensation-constants";
+  compensationIssueOptions,
+  compensationTypeOptions,
+  renderCompensationIssueOption,
+  renderCompensationIssueValue,
+  renderCompensationTypeOption,
+  renderCompensationTypeValue,
+} from "@/components/CompensationSelectContent";
 import type {
   CompensationFormValue,
   CompensationIssueCategory,
   CompensationType,
 } from "@/lib/compensation-types";
-import {
-  getCompensationIssueCategoryLabel,
-  getCompensationTypeLabel,
-} from "@/lib/compensation-utils";
+
+const fulfillmentModeOptions: AppSelectOption<"immediate" | "later_claim">[] = [
+  {
+    value: "immediate",
+    label: "Immediate",
+    description: "Resolve and hand over the compensation during this visit.",
+  },
+  {
+    value: "later_claim",
+    label: "Customer will claim later",
+    description: "Save the case so the customer can collect or redeem it later.",
+  },
+];
+
+const completionOptions: AppSelectOption<"yes" | "no">[] = [
+  {
+    value: "yes",
+    label: "Yes",
+    description: "Mark the case as completed as soon as it is saved.",
+  },
+  {
+    value: "no",
+    label: "Save as pending",
+    description: "Keep the case open so the team can finish it later.",
+  },
+];
+
+const readyStateOptions: AppSelectOption<"ready_now" | "prepare_later">[] = [
+  {
+    value: "ready_now",
+    label: "Available immediately",
+    description: "The customer can claim the compensation right away.",
+  },
+  {
+    value: "prepare_later",
+    label: "Prepare later",
+    description: "Keep the case pending until the item or credit is ready.",
+  },
+];
 
 interface CompensationCaseFormDialogProps {
   open: boolean;
@@ -142,23 +181,15 @@ export default function CompensationCaseFormDialog({
             description="Capture the issue clearly so the next shift can understand it at a glance."
           >
             <Field label="Issue category">
-              <Select
+              <AppSelect
                 value={value.issueCategory}
                 onValueChange={(nextValue) =>
                   updateField("issueCategory", nextValue as CompensationIssueCategory)
                 }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMPENSATION_ISSUE_CATEGORIES.map((category) => (
-                    <SelectItem key={category} value={category}>
-                      {getCompensationIssueCategoryLabel(category)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={compensationIssueOptions}
+                renderValue={renderCompensationIssueValue}
+                renderOption={renderCompensationIssueOption}
+              />
             </Field>
             <Field label="Related order number">
               <Input
@@ -196,23 +227,15 @@ export default function CompensationCaseFormDialog({
             description="Only show the fields that matter for the chosen resolution."
           >
             <Field label="Compensation type">
-              <Select
+              <AppSelect
                 value={value.compensationType}
                 onValueChange={(nextValue) =>
                   updateField("compensationType", nextValue as CompensationType)
                 }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {COMPENSATION_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {getCompensationTypeLabel(type)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={compensationTypeOptions}
+                renderValue={renderCompensationTypeValue}
+                renderOption={renderCompensationTypeOption}
+              />
             </Field>
 
             {showsValueField && (
@@ -261,43 +284,29 @@ export default function CompensationCaseFormDialog({
             description="Support both immediate handling and later customer claims."
           >
             <Field label="Fulfillment mode">
-              <Select
+              <AppSelect
                 value={value.fulfillmentMode}
                 onValueChange={(nextValue) =>
                   updateField("fulfillmentMode", nextValue as "immediate" | "later_claim")
                 }
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="immediate">Immediate</SelectItem>
-                  <SelectItem value="later_claim">Customer will claim later</SelectItem>
-                </SelectContent>
-              </Select>
+                options={fulfillmentModeOptions}
+              />
             </Field>
 
             {value.fulfillmentMode === "immediate" ? (
               <Field label="Complete immediately">
-                <Select
+                <AppSelect
                   value={value.completeImmediately ? "yes" : "no"}
                   onValueChange={(nextValue) =>
                     updateField("completeImmediately", nextValue === "yes")
                   }
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="yes">Yes</SelectItem>
-                    <SelectItem value="no">Save as pending</SelectItem>
-                  </SelectContent>
-                </Select>
+                  options={completionOptions}
+                />
               </Field>
             ) : (
               <>
                 <Field label="Ready state">
-                  <Select
+                  <AppSelect
                     value={value.readyState}
                     onValueChange={(nextValue) =>
                       updateField(
@@ -305,15 +314,8 @@ export default function CompensationCaseFormDialog({
                         nextValue as "ready_now" | "prepare_later"
                       )
                     }
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ready_now">Available immediately</SelectItem>
-                      <SelectItem value="prepare_later">Prepare later</SelectItem>
-                    </SelectContent>
-                  </Select>
+                    options={readyStateOptions}
+                  />
                 </Field>
                 <Field label="Available from">
                   <Input
