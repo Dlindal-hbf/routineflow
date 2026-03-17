@@ -20,6 +20,9 @@ import {
 import ListCard from "@/components/ListCard";
 import TaskCard from "@/components/TaskCard";
 import TaskDialog from "../components/TaskDialog";
+import ActivityHistoryView from "@/components/history/ActivityHistoryView";
+import HistoryPageShell from "@/components/history/HistoryPageShell";
+import SnapshotArchiveView from "@/components/history/SnapshotArchiveView";
 import PageHeader from "@/components/ui/PageHeader";
 import BrandedHeader from "@/components/BrandedHeader";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,16 +39,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
 import ColorPicker from "@/components/ui/ColorPicker";
-import { buildMonthCalendar } from "@/lib/calendar-utils";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
+import { formatTimestamp } from "@/lib/date-utils";
+import type { ActivityHistoryEntry } from "@/lib/history-types";
 import {
-  compareDateKeys,
-  formatDateKey,
-  formatTimestamp,
-  getDateKeyFromTimestamp,
-  getTodayDateKey,
-  isDateKey,
-} from "@/lib/date-utils";
+  createActivityHistoryEntry,
+  findSnapshotArchiveEntry,
+  readActivityHistoryEntries,
+} from "@/lib/history-utils";
 import { cn } from "@/lib/utils";
 import ResetScheduleForm, { ResetScheduleValue } from "@/src/components/ResetScheduleForm";
 import { RecordMetadata, RecordOrigin, RoutineFrequency } from "@/src/lib/scheduling/reset-types";
@@ -60,7 +61,6 @@ import {
   saveTaskListRecords,
 } from "@/src/lib/scheduling/routine-records-repo";
 import { ROUTINE_TEMPLATES } from "@/src/lib/scheduling/routine-templates";
-import type { DateKey } from "@/types/calendar";
 
 type View =
   | "overview"
@@ -127,99 +127,6 @@ type Routine = {
   tasks: Task[];
 };
 
-// snapshot metadata used by archive list
-interface SnapshotMeta {
-  id: string;
-  name: string;
-  createdAt: string;
-}
-
-// component to render archive list inside main page
-function ArchiveList({
-  storageKey,
-  onView,
-}: {
-  storageKey: string;
-  onView: (id: string) => void;
-}) {
-  const [snaps, setSnaps] = useState<SnapshotMeta[]>([]);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          setSnaps(parsed as SnapshotMeta[]);
-        }
-      } catch {}
-    }
-  }, [storageKey]);
-
-  // reflect changes made in other tabs/windows
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === storageKey && e.newValue != null) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) {
-            setSnaps(parsed as SnapshotMeta[]);
-          }
-        } catch {}
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, [storageKey]);
-
-  const deleteSnapshot = (id: string) => {
-    if (!window.confirm("Delete this snapshot?")) return;
-    const updated = snaps.filter((s) => s.id !== id);
-    setSnaps(updated);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-  };
-
-  if (snaps.length === 0) {
-    return <p className="text-xl text-slate-600">No snapshots saved yet.</p>;
-  }
-
-  return (
-    <div className="space-y-4">
-      {snaps.map((snap) => (
-        <Card
-          key={snap.id}
-          className="rounded-3xl border border-slate-200 bg-white"
-        >
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-lg font-semibold">{snap.name}</div>
-              <div className="text-sm text-slate-500">
-                {formatTimestamp(snap.createdAt)}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={() => onView(snap.id)}
-                size="sm"
-              >
-                View
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-red-600"
-                onClick={() => deleteSnapshot(snap.id)}
-              >
-                Delete
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 type WorkLogEntry = {
   id: number;
   type: LogType;
@@ -235,61 +142,6 @@ type WorkLogEntry = {
     signature: string;
   };
 };
-
-type HistoryEntry = {
-  timestamp: string;
-  dayKey: DateKey;
-  description: string;
-  category: string;
-  routine?: string;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function createHistoryEntry(
-  description: string,
-  category: string,
-  routine?: string,
-  timestamp: string = new Date().toISOString()
-): HistoryEntry {
-  return {
-    timestamp,
-    dayKey:
-      getDateKeyFromTimestamp(timestamp, { timeZone: DEFAULT_TIMEZONE }) ??
-      getTodayDateKey(DEFAULT_TIMEZONE),
-    description,
-    category,
-    routine,
-  };
-}
-
-function normalizeHistoryEntry(value: unknown): HistoryEntry | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const timestamp =
-    typeof value.timestamp === "string"
-      ? value.timestamp
-      : typeof value.date === "string"
-      ? value.date
-      : new Date().toISOString();
-  const dayKey =
-    typeof value.dayKey === "string" && isDateKey(value.dayKey)
-      ? value.dayKey
-      : getDateKeyFromTimestamp(timestamp, { timeZone: DEFAULT_TIMEZONE }) ??
-        getTodayDateKey(DEFAULT_TIMEZONE);
-
-  return {
-    timestamp,
-    dayKey,
-    description: typeof value.description === "string" ? value.description : "",
-    category: typeof value.category === "string" ? value.category : "Other",
-    routine: typeof value.routine === "string" ? value.routine : undefined,
-  };
-}
 
 const initialRoutines: Routine[] = [
   {
@@ -534,33 +386,26 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [employee, setEmployee] = useState("");
 
   // history state for automated logging
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
-
-  // Load history from localStorage on mount
-  useEffect(() => {
-    const stored = localStorage.getItem("history");
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored) as unknown;
-        if (Array.isArray(parsed)) {
-          setHistory(
-            parsed.flatMap((entry) => {
-              const normalized = normalizeHistoryEntry(entry);
-              return normalized ? [normalized] : [];
-            })
-          );
-        }
-      } catch {}
-    }
-  }, []);
+  const [history, setHistory] = useState<ActivityHistoryEntry[]>(() =>
+    readActivityHistoryEntries("history")
+  );
 
   // Save history to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("history", JSON.stringify(history));
   }, [history]);
 
-  // selected date for history/calendar filtering
-  const [selectedDateKey, setSelectedDateKey] = useState<DateKey | null>(null);
+  // sync history across tabs/windows
+  useEffect(() => {
+    const handler = (event: StorageEvent) => {
+      if (event.key === "history") {
+        setHistory(readActivityHistoryEntries("history"));
+      }
+    };
+
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, []);
 
   // task lists state (each behaves like the original "Stengerutiner" list)
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
@@ -683,6 +528,17 @@ export default function WorkplaceRoutinesDemoStyle() {
   const findList = (listId: number) => taskLists.find((l) => l.id === listId);
 
   const selectedList = selectedListId != null ? findList(selectedListId) : null;
+  const inventoryArchiveStorageKey =
+    inventoryArchiveType === "bunner"
+      ? "inventorySnapshots.v1"
+      : "ostInventorySnapshots.v1";
+  const selectedSnapshotMeta = useMemo(
+    () =>
+      snapshotId
+        ? findSnapshotArchiveEntry(inventoryArchiveStorageKey, snapshotId)
+        : null,
+    [inventoryArchiveStorageKey, snapshotId]
+  );
 
   const sortedCurrentListTasks = useMemo(() => {
     if (!selectedList) return [];
@@ -753,7 +609,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         { id: nextLogId(), title, details, type, author, date, pills },
       ]);
       setHistory((prev) => [
-        createHistoryEntry(`Added a new ${type} entry: ${title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`Added a new ${type} entry: ${title}`, "Work Log", undefined, date),
         ...prev,
       ]);
     }
@@ -788,7 +644,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         )
       );
       setHistory((prev) => [
-        createHistoryEntry(`Edited ${entry.type} entry: ${entry.title}`, "Work Log"),
+        createActivityHistoryEntry(`Edited ${entry.type} entry: ${entry.title}`, "Work Log"),
         ...prev,
       ]);
     }
@@ -801,7 +657,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       setWorkLog((cur) => cur.filter((e) => e.id !== id));
       if (entry) {
         setHistory((prev) => [
-          createHistoryEntry(`Deleted ${entry.type} entry: ${entry.title}`, "Work Log"),
+          createActivityHistoryEntry(`Deleted ${entry.type} entry: ${entry.title}`, "Work Log"),
           ...prev,
         ]);
       }
@@ -819,7 +675,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       { id: nextLogId(), title, details, type: "Deviation", author: employee, date, pills: [] },
     ]);
     setHistory((prev) => [
-      createHistoryEntry(`Added a new Avvik entry: ${title}`, "Work Log", undefined, date),
+      createActivityHistoryEntry(`Added a new Avvik entry: ${title}`, "Work Log", undefined, date),
       ...prev,
     ]);
     setIsAvvikDialogOpen(false);
@@ -848,13 +704,13 @@ export default function WorkplaceRoutinesDemoStyle() {
         cur.map((e) => (e.id === editingCompId ? entry : e))
       );
       setHistory((prev) => [
-        createHistoryEntry(`Edited Compensation entry: ${entry.title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`Edited Compensation entry: ${entry.title}`, "Work Log", undefined, date),
         ...prev,
       ]);
     } else {
       setWorkLog((cur) => [...cur, entry]);
       setHistory((prev) => [
-        createHistoryEntry(`Added a new Compensation entry: ${entry.title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`Added a new Compensation entry: ${entry.title}`, "Work Log", undefined, date),
         ...prev,
       ]);
     }
@@ -879,7 +735,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (newCompleted) {
       setHistory((prev) => [
-        createHistoryEntry(`Completed task: ${task.title}`, "Task", routine.title),
+        createActivityHistoryEntry(`Completed task: ${task.title}`, "Task", routine.title),
         ...prev,
       ]);
     } else {
@@ -1280,7 +1136,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (task) {
       setHistory((prev) => [
-        createHistoryEntry(`Deleted task: ${task.title}`, "Daily Task", list.title),
+        createActivityHistoryEntry(`Deleted task: ${task.title}`, "Daily Task", list.title),
         ...prev,
       ]);
     }
@@ -1353,117 +1209,6 @@ export default function WorkplaceRoutinesDemoStyle() {
     }),
     [workLog]
   );
-
-  // group history by date
-  const groupedByDate = useMemo(() => {
-    const groups: Record<string, typeof history> = {};
-    history.forEach((item) => {
-      if (!groups[item.dayKey]) {
-        groups[item.dayKey] = [];
-      }
-      groups[item.dayKey].push(item);
-    });
-    return groups;
-  }, [history]);
-
-  const currentHistoryDateKey = getTodayDateKey(DEFAULT_TIMEZONE);
-
-  const historyCalendar = useMemo(
-    () =>
-      buildMonthCalendar(currentHistoryDateKey, {
-        locale: "no-NO",
-        weekStartsOn: "monday",
-        todayKey: currentHistoryDateKey,
-      }),
-    [currentHistoryDateKey]
-  );
-
-  // for each date, group by category, and for Task, by routine
-  const groupedHistory = useMemo(() => {
-    const result: Record<string, Record<string, Record<string, typeof history>>> = {};
-    Object.entries(groupedByDate).forEach(([dayKey, items]) => {
-      result[dayKey] = {};
-      items.forEach((item) => {
-        const cat = item.category;
-        if (!result[dayKey][cat]) result[dayKey][cat] = {};
-        const sub = item.category === "Task" ? item.routine || "Other" : "All";
-        if (!result[dayKey][cat][sub]) result[dayKey][cat][sub] = [];
-        result[dayKey][cat][sub].push(item);
-      });
-    });
-
-    Object.values(result).forEach((categories) => {
-      Object.values(categories).forEach((subs) => {
-        Object.values(subs).forEach((arr) => {
-          arr.sort((a, b) => {
-            const timestampCompare = b.timestamp.localeCompare(a.timestamp);
-            if (timestampCompare !== 0) return timestampCompare;
-            if (a.description < b.description) return -1;
-            if (a.description > b.description) return 1;
-            if (a.category < b.category) return -1;
-            if (a.category > b.category) return 1;
-            const routineA = a.routine || "";
-            const routineB = b.routine || "";
-            if (routineA < routineB) return -1;
-            if (routineA > routineB) return 1;
-            return 0;
-          });
-        });
-      });
-    });
-
-    return result;
-  }, [groupedByDate]);
-
-  const renderCalendar = () => {
-    const hasHistory = (dayKey: DateKey) => groupedHistory[dayKey] !== undefined;
-
-    return (
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold">
-            {historyCalendar.monthLabel}
-          </h2>
-          <Button
-            onClick={() => setSelectedDateKey(null)}
-            variant={selectedDateKey ? "outline" : "default"}
-            className="text-lg"
-          >
-            Show All
-          </Button>
-        </div>
-        <div className="grid grid-cols-7 gap-2">
-          {historyCalendar.weekdayLabels.map((day) => (
-            <div key={day} className="text-center font-semibold text-slate-600 py-2">
-              {day}
-            </div>
-          ))}
-          {historyCalendar.weeks.flat().map((cell, index) => (
-            <button
-              key={cell?.dateKey ?? `empty-${index}`}
-              onClick={() => {
-                if (cell) {
-                  setSelectedDateKey(cell.dateKey);
-                }
-              }}
-              className={cn(
-                "btn-ghost h-12 w-12 text-center text-lg font-medium",
-                !cell && "opacity-50 cursor-default",
-                cell && hasHistory(cell.dateKey)
-                  ? "bg-primary/20 text-primary"
-                  : "text-neutral-400",
-                cell && selectedDateKey === cell.dateKey ? "bg-primary text-white" : ""
-              )}
-              disabled={!cell}
-            >
-              {cell?.dayOfMonth ?? ""}
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-background text-foreground">
       {!user && (
@@ -2198,200 +1943,84 @@ export default function WorkplaceRoutinesDemoStyle() {
       )}
 
       {view === "inventory-archive" && (
-        <div>
-          <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto max-w-6xl px-6 py-8">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => {
-                    setSnapshotId(null);
-                    setView("inventory");
-                  }}
-                  className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  Back
-                </button>
-                <div>
-                  <h1 className="text-4xl font-bold">
-                    {inventoryArchiveType === "bunner" ? "Bunner Archive" : "Ost Archive"}
-                  </h1>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-6xl px-6 py-10">
-            {/* archive list */}
-            <ArchiveList
-              storageKey={inventoryArchiveType === "bunner" ? "inventorySnapshots.v1" : "ostInventorySnapshots.v1"}
-              onView={(id) => {
-                setSnapshotId(id);
-                setView("inventory-snapshot");
-              }}
-            />
-          </main>
-        </div>
+        <HistoryPageShell
+          title={inventoryArchiveType === "bunner" ? "Bunner Archive" : "Ost Archive"}
+          description="Saved read-only snapshots"
+          onBack={() => {
+            setSnapshotId(null);
+            setView("inventory");
+          }}
+        >
+          <SnapshotArchiveView
+            key={inventoryArchiveStorageKey}
+            storageKey={inventoryArchiveStorageKey}
+            onOpen={(id) => {
+              setSnapshotId(id);
+              setView("inventory-snapshot");
+            }}
+          />
+        </HistoryPageShell>
       )}
 
       {view === "inventory-snapshot" && snapshotId && (
-        <div>
-          <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto max-w-6xl px-6 py-8">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => {
-                    setSnapshotId(null);
-                    setView("inventory-archive");
-                  }}
-                  className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  Back
-                </button>
-                <div>
-                  <h1 className="text-4xl font-bold">Snapshot Viewer</h1>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-7xl px-6 py-10">
-            {inventoryArchiveType === "bunner" ? (
-              <InventoryLog viewSnapshotId={snapshotId} readOnly />
-            ) : (
-              <OstInventoryLog viewSnapshotId={snapshotId} readOnly />
-            )}
-          </main>
-        </div>
+        <HistoryPageShell
+          title={selectedSnapshotMeta?.name ?? "Snapshot Viewer"}
+          description={
+            selectedSnapshotMeta
+              ? `Saved ${formatTimestamp(selectedSnapshotMeta.createdAt)}`
+              : "Read-only archived snapshot"
+          }
+          onBack={() => {
+            setSnapshotId(null);
+            setView("inventory-archive");
+          }}
+          bodyClassName="max-w-7xl"
+        >
+          {inventoryArchiveType === "bunner" ? (
+            <InventoryLog viewSnapshotId={snapshotId} readOnly />
+          ) : (
+            <OstInventoryLog viewSnapshotId={snapshotId} readOnly />
+          )}
+        </HistoryPageShell>
       )}
 
       {view === "history" && (
-        <div>
-          <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto max-w-6xl px-6 py-8">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setView("overview")}
-                  className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  Back
-                </button>
-                <div>
-                  <h1 className="text-4xl font-bold">History</h1>
-                  <p className="text-2xl text-slate-500">Recent routine activity</p>
-                </div>
-                {user?.role === "admin" && (
-                  <Button
-                    onClick={() => {
-                      if (window.confirm("Clear all history? This cannot be undone.")) {
-                        setHistory([]);
-                        localStorage.removeItem("history");
-                      }
-                    }}
-                    variant="outline"
-                    className="h-12 px-4 text-lg"
-                  >
-                    Clear History
-                  </Button>
-                )}
-              </div>
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-5xl px-6 py-10">
-            {renderCalendar()}
-            <div className="space-y-8">
-              {Object.entries(groupedHistory)
-                .sort(([a], [b]) => compareDateKeys(b as DateKey, a as DateKey))
-                .filter(([dayKey]) => !selectedDateKey || dayKey === selectedDateKey)
-                .map(([dayKey, categories]) => (
-                  <div key={dayKey}>
-                    <h2 className="text-3xl font-semibold mb-6">{formatDateKey(dayKey as DateKey)}</h2>
-                    <div className="space-y-6">
-                      {Object.entries(categories).map(([category, subs]) => (
-                        <div key={category}>
-                          <h3 className="text-2xl font-medium mb-4">{category}</h3>
-                          {category === "Task" ? (
-                            <div className="space-y-4">
-                              {Object.entries(subs as Record<string, typeof history>).map(([routine, items]) => (
-                                <div key={routine}>
-                                  <h4 className="text-xl font-medium mb-2">{routine}</h4>
-                                  <div className="space-y-2 ml-4">
-                                    {items.map((item, index) => (
-                                      <motion.div
-                                        key={index}
-                                        initial={{ opacity: 0, x: -20 }}
-                                        animate={{ opacity: 1, x: 0 }}
-                                        transition={{ duration: 0.3, delay: index * 0.05 }}
-                                      >
-                                        <Card className="rounded-3xl border border-slate-200 bg-white">
-                                          <CardContent className="p-4">
-                                            <div className="text-lg text-slate-700">{item.description}</div>
-                                            <div className="text-sm text-slate-500 mt-1">{formatTimestamp(item.timestamp)}</div>
-                                          </CardContent>
-                                        </Card>
-                                      </motion.div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <div className="space-y-4">
-                              {subs["All"].map((item, index) => (
-                                <motion.div
-                                  key={index}
-                                  initial={{ opacity: 0, x: -20 }}
-                                  animate={{ opacity: 1, x: 0 }}
-                                  transition={{ duration: 0.3, delay: index * 0.05 }}
-                                >
-                                  <Card className="rounded-3xl border border-slate-200 bg-white">
-                                    <CardContent className="p-6">
-                                      <div className="text-xl text-slate-700">{item.description}</div>
-                                      <div className="text-sm text-slate-500 mt-1">{formatTimestamp(item.timestamp)}</div>
-                                    </CardContent>
-                                  </Card>
-                                </motion.div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-            </div>
-          </main>
-        </div>
+        <HistoryPageShell
+          title="History"
+          description="Recent routine activity"
+          onBack={() => setView("overview")}
+          bodyClassName="max-w-5xl"
+          actions={
+            user?.role === "admin" ? (
+              <Button
+                onClick={() => {
+                  if (window.confirm("Clear all history? This cannot be undone.")) {
+                    setHistory([]);
+                    localStorage.removeItem("history");
+                  }
+                }}
+                variant="outline"
+                className="h-12 px-4 text-lg"
+              >
+                Clear History
+              </Button>
+            ) : undefined
+          }
+        >
+          <ActivityHistoryView entries={history} />
+        </HistoryPageShell>
       )}
 
       {view === "list-history" && selectedList && (
-        <div>
-          <header className={`${getBgClass(selectedList.color)} text-white`}
-          >
-            <div className="mx-auto max-w-6xl px-6 py-8">
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => setView("list-detail")}
-                  className="flex items-center gap-2 text-xl text-white/90 hover:text-white"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  Back
-                </button>
-                <div>
-                  <h1 className="text-4xl font-bold">{selectedList.title} History</h1>
-                  <p className="text-2xl text-white/80">Task completion history</p>
-                </div>
-              </div>
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-7xl px-6 py-10">
-            <TaskListHistory listId={selectedList.id} listTitle={selectedList.title} />
-          </main>
-        </div>
+        <HistoryPageShell
+          title={`${selectedList.title} History`}
+          description="Task completion history"
+          onBack={() => setView("list-detail")}
+          accentClassName={getBgClass(selectedList.color)}
+          bodyClassName="max-w-7xl"
+        >
+          <TaskListHistory listId={selectedList.id} />
+        </HistoryPageShell>
       )}
 
       <Dialog open={isAvvikDialogOpen} onOpenChange={setIsAvvikDialogOpen}>
