@@ -16,6 +16,7 @@ import {
   User,
   Users,
   PenLine,
+  HandCoins,
 } from "lucide-react";
 import ListCard from "@/components/ListCard";
 import TaskCard from "@/components/TaskCard";
@@ -38,6 +39,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
+import CompensationModule from "@/components/CompensationModule";
 import ColorPicker from "@/components/ui/ColorPicker";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
 import { formatTimestamp } from "@/lib/date-utils";
@@ -64,6 +66,7 @@ import { ROUTINE_TEMPLATES } from "@/src/lib/scheduling/routine-templates";
 
 type View =
   | "overview"
+  | "compensation"
   | "routine-detail"
   | "work-log"
   | "workers"
@@ -304,6 +307,8 @@ export default function WorkplaceRoutinesDemoStyle() {
   };
 
   const [loginCode, setLoginCode] = useState("");
+  const currentActorLabel =
+    user?.role === "admin" ? "Manager" : user?.role === "staff" ? "Staff" : "Staff";
 
   const logout = () => {
     localStorage.removeItem("user");
@@ -1319,6 +1324,14 @@ export default function WorkplaceRoutinesDemoStyle() {
                     <Button
                       variant="outline"
                       className="h-14 rounded-2xl px-6 text-2xl"
+                      onClick={() => setView("compensation")}
+                    >
+                      <HandCoins className="mr-3 h-6 w-6" />
+                      Compensation
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="h-14 rounded-2xl px-6 text-2xl"
                       onClick={() => setView("inventory")}
                     >
                       <Package className="mr-3 h-6 w-6" />
@@ -1331,6 +1344,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 {[
                   { key: "overview", label: "Overview" },
                   { key: "work-log", label: "Work Log" },
+                  { key: "compensation", label: "Compensation" },
                   { key: "inventory", label: "Inventory" },
                   { key: "workers", label: "Workers" },
                 ].map((item) => (
@@ -1490,6 +1504,24 @@ export default function WorkplaceRoutinesDemoStyle() {
             </div>
           </main>
         </div>
+      )}
+
+      {view === "compensation" && (
+        <CompensationModule
+          onBack={() => setView("overview")}
+          currentActor={currentActorLabel}
+          onHistoryEntry={(description) =>
+            setHistory((prev) => [
+              createActivityHistoryEntry(
+                description,
+                "Compensation",
+                undefined,
+                new Date().toISOString()
+              ),
+              ...prev,
+            ])
+          }
+        />
       )}
 
       {view === "list-detail" && selectedList && (
