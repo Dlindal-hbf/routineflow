@@ -113,9 +113,9 @@ export const ROUTINE_TEMPLATES: RoutineTemplateDefinition[] = [
     name: "Opening Routine",
     listName: "Opening Routine",
     listDescription: "Standard opening checklist before service starts.",
-    color: "blue",
+    color: "red",
     frequency: "daily",
-    resetTime: "07:00",
+    resetTime: "06:00",
     tasks: [
       {
         name: "Inspect prep stations",
@@ -131,7 +131,7 @@ export const ROUTINE_TEMPLATES: RoutineTemplateDefinition[] = [
     name: "Inventory Check",
     listName: "Inventory Check",
     listDescription: "Recurring inventory control routine.",
-    color: "yellow",
+    color: "red",
     frequency: "weekly",
     resetTime: "10:00",
     tasks: [
