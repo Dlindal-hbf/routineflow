@@ -14,7 +14,6 @@ export const COMPENSATION_DEFAULT_CURRENCY = "NOK";
 
 export const COMPENSATION_TABS: Array<{ value: CompensationTab; label: string }> = [
   { value: "open", label: "Open" },
-  { value: "ready", label: "Ready" },
   { value: "closed", label: "Closed" },
 ];
 
@@ -139,7 +138,6 @@ export const COMPENSATION_SORT_OPTIONS: Array<{
   { value: "newest", label: "Newest" },
   { value: "oldest", label: "Oldest" },
   { value: "customer_name", label: "Customer name" },
-  { value: "ready_for_claim", label: "Ready for claim" },
   { value: "last_updated", label: "Last updated" },
 ];
 

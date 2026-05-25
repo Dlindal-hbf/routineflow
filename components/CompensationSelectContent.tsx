@@ -4,31 +4,27 @@ import type { AppSelectOption } from "@/components/ui/app-select";
 import {
   COMPENSATION_ISSUE_CATEGORIES,
   COMPENSATION_ISSUE_CATEGORY_TONE_CLASS_NAMES,
-  COMPENSATION_STATUSES,
-  COMPENSATION_STATUS_TONE_CLASS_NAMES,
   COMPENSATION_TYPES,
   COMPENSATION_TYPE_TONE_CLASS_NAMES,
 } from "@/lib/compensation-constants";
 import type {
   CompensationIssueCategory,
-  CompensationStatus,
   CompensationType,
+  CompensationVisibleStatus,
 } from "@/lib/compensation-types";
 import {
   getCompensationIssueCategoryLabel,
-  getCompensationStatusLabel,
   getCompensationTypeLabel,
+  getCompensationVisibleStatusLabel,
 } from "@/lib/compensation-utils";
 import { cn } from "@/lib/utils";
 
 export const compensationStatusFilterOptions: AppSelectOption<
-  CompensationStatus | "all"
+  CompensationVisibleStatus | "all"
 >[] = [
   { value: "all", label: "All statuses" },
-  ...COMPENSATION_STATUSES.map((status) => ({
-    value: status,
-    label: getCompensationStatusLabel(status),
-  })),
+  { value: "open", label: getCompensationVisibleStatusLabel("open") },
+  { value: "closed", label: getCompensationVisibleStatusLabel("closed") },
 ];
 
 export const compensationTypeFilterOptions: AppSelectOption<
@@ -90,29 +86,33 @@ function renderSemanticOption(label: string, toneClassName?: string) {
 }
 
 export function renderCompensationStatusValue(
-  option: AppSelectOption<CompensationStatus | "all">
+  option: AppSelectOption<CompensationVisibleStatus | "all">
 ) {
   if (option.value === "all") {
     return renderSemanticValue(option.label);
   }
 
-  return renderSemanticValue(
-    option.label,
-    COMPENSATION_STATUS_TONE_CLASS_NAMES[option.value]
-  );
+  const toneClassName =
+    option.value === "open"
+      ? "bg-primary"
+      : "bg-slate-500";
+
+  return renderSemanticValue(option.label, toneClassName);
 }
 
 export function renderCompensationStatusOption(
-  option: AppSelectOption<CompensationStatus | "all">
+  option: AppSelectOption<CompensationVisibleStatus | "all">
 ) {
   if (option.value === "all") {
     return renderSemanticOption(option.label);
   }
 
-  return renderSemanticOption(
-    option.label,
-    COMPENSATION_STATUS_TONE_CLASS_NAMES[option.value]
-  );
+  const toneClassName =
+    option.value === "open"
+      ? "bg-primary"
+      : "bg-slate-500";
+
+  return renderSemanticOption(option.label, toneClassName);
 }
 
 export function renderCompensationTypeValue(

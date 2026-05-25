@@ -5,7 +5,8 @@ import {
   cancelCompensationCaseRecord,
   completeCompensationCaseRecord,
   createCompensationCaseRecord,
-  markCompensationCaseReadyForClaim,
+  deleteCompensationCaseRecord,
+  reopenCompensationCaseRecord,
   updateCompensationCaseRecord,
 } from "@/lib/compensation-store";
 import type {
@@ -18,6 +19,7 @@ import type {
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
 import { isCachedValueStale } from "@/src/services/clientCache";
 import {
+  deleteCustomerInteraction,
   fetchCustomerInteractions,
   getCachedCustomerInteractions,
   upsertCustomerInteraction,
@@ -102,6 +104,38 @@ export function useCompensationCases(enabled = true) {
     };
   }, [enabled, hasCachedCases]);
 
+  const runDelete = async (
+    caseId: string
+  ): Promise<CompensationMutationResult | null> => {
+    const currentCases = latestCasesRef.current;
+    const outcome = deleteCompensationCaseRecord(currentCases, caseId);
+    if (!outcome) {
+      return null;
+    }
+
+    setError(null);
+    setCases(outcome.nextCases);
+
+    void runBackgroundSync(
+      () => deleteCustomerInteraction(caseId),
+      {
+        errorMessage: "Could not delete the compensation case. The failed change was reverted.",
+        onError: (mutationError) => {
+          setError(
+            mutationError instanceof Error
+              ? mutationError.message
+              : "Failed to delete compensation case."
+          );
+          if (latestCasesRef.current === outcome.nextCases) {
+            setCases(currentCases);
+          }
+        },
+      }
+    ).catch(() => undefined);
+
+    return outcome.result;
+  };
+
   const runMutation = async (
     mutation: MutationFn
   ): Promise<CompensationMutationResult | null> => {
@@ -180,17 +214,18 @@ export function useCompensationCases(enabled = true) {
       runMutation((currentCases) =>
         updateCompensationCaseRecord(currentCases, caseId, formValue, actor)
       ),
-    markReadyForClaim: (caseId: string, actor: string) =>
-      runMutation((currentCases) =>
-        markCompensationCaseReadyForClaim(currentCases, caseId, actor)
-      ),
     completeCase: (caseId: string, payload: CompensationCompletePayload) =>
       runMutation((currentCases) =>
         completeCompensationCaseRecord(currentCases, caseId, payload)
+      ),
+    reopenCase: (caseId: string, actor: string) =>
+      runMutation((currentCases) =>
+        reopenCompensationCaseRecord(currentCases, caseId, actor)
       ),
     cancelCase: (caseId: string, payload: CompensationCancelPayload) =>
       runMutation((currentCases) =>
         cancelCompensationCaseRecord(currentCases, caseId, payload)
       ),
+    deleteCase: (caseId: string) => runDelete(caseId),
   };
 }

@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AppSelect, type AppSelectOption } from "@/components/ui/app-select";
+import { AppSelect } from "@/components/ui/app-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   compensationIssueOptions,
@@ -27,45 +27,6 @@ import type {
   CompensationIssueCategory,
   CompensationType,
 } from "@/lib/compensation-types";
-
-const fulfillmentModeOptions: AppSelectOption<"immediate" | "later_claim">[] = [
-  {
-    value: "immediate",
-    label: "Immediate",
-    description: "Resolve and hand over the compensation during this visit.",
-  },
-  {
-    value: "later_claim",
-    label: "Customer will claim later",
-    description: "Save the case so the customer can collect or redeem it later.",
-  },
-];
-
-const completionOptions: AppSelectOption<"yes" | "no">[] = [
-  {
-    value: "yes",
-    label: "Yes",
-    description: "Mark the case as completed as soon as it is saved.",
-  },
-  {
-    value: "no",
-    label: "Save as pending",
-    description: "Keep the case open so the team can finish it later.",
-  },
-];
-
-const readyStateOptions: AppSelectOption<"ready_now" | "prepare_later">[] = [
-  {
-    value: "ready_now",
-    label: "Available immediately",
-    description: "The customer can claim the compensation right away.",
-  },
-  {
-    value: "prepare_later",
-    label: "Prepare later",
-    description: "Keep the case pending until the item or credit is ready.",
-  },
-];
 
 interface CompensationCaseFormDialogProps {
   open: boolean;
@@ -262,62 +223,6 @@ export default function CompensationCaseFormDialog({
                 rows={3}
               />
             </Field>
-          </Section>
-
-          <Section
-            title="Claim timing"
-            description="Support both immediate handling and later customer claims."
-          >
-            <Field label="Fulfillment mode">
-              <AppSelect
-                value={value.fulfillmentMode}
-                onValueChange={(nextValue) =>
-                  updateField("fulfillmentMode", nextValue as "immediate" | "later_claim")
-                }
-                options={fulfillmentModeOptions}
-              />
-            </Field>
-
-            {value.fulfillmentMode === "immediate" ? (
-              <Field label="Complete immediately">
-                <AppSelect
-                  value={value.completeImmediately ? "yes" : "no"}
-                  onValueChange={(nextValue) =>
-                    updateField("completeImmediately", nextValue === "yes")
-                  }
-                  options={completionOptions}
-                />
-              </Field>
-            ) : (
-              <>
-                <Field label="Ready state">
-                  <AppSelect
-                    value={value.readyState}
-                    onValueChange={(nextValue) =>
-                      updateField(
-                        "readyState",
-                        nextValue as "ready_now" | "prepare_later"
-                      )
-                    }
-                    options={readyStateOptions}
-                  />
-                </Field>
-                <Field label="Available from">
-                  <Input
-                    value={value.readyForClaimAt}
-                    onChange={(event) => updateField("readyForClaimAt", event.target.value)}
-                    type="datetime-local"
-                  />
-                </Field>
-                <Field label="Expiry date">
-                  <Input
-                    value={value.expiryDate}
-                    onChange={(event) => updateField("expiryDate", event.target.value)}
-                    type="date"
-                  />
-                </Field>
-              </>
-            )}
           </Section>
 
           <Section title="Notes" description="Short team notes stay with the case.">

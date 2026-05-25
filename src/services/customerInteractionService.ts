@@ -65,6 +65,36 @@ function createUuid(): string {
   return `${Date.now()}0000-0000-4000-8000-${Math.random().toString(16).slice(2, 14)}`;
 }
 
+function createCaseNumber(): string {
+  const now = new Date();
+  const datePart = `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(
+    now.getUTCDate()
+  ).padStart(2, "0")}`;
+  const timePart = `${String(now.getUTCHours()).padStart(2, "0")}${String(
+    now.getUTCMinutes()
+  ).padStart(2, "0")}${String(now.getUTCSeconds()).padStart(2, "0")}`;
+  const randomPart = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `COMP-${datePart}-${timePart}-${randomPart}`;
+}
+
+function isUniqueCaseNumberViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeError = error as { code?: string; message?: string; details?: string };
+  return (
+    maybeError.code === "23505" &&
+    `${maybeError.message ?? ""} ${maybeError.details ?? ""}`.includes(
+      "customer_interactions_case_number_idx"
+    )
+  );
+}
+
+function toSafeCreateError(): Error {
+  return new Error("Could not create case. Please try again.");
+}
+
 function mapInteractionRow(row: CustomerInteractionRow): CompensationCase {
   return {
     id: row.id,
@@ -103,12 +133,30 @@ function mapInteractionRow(row: CustomerInteractionRow): CompensationCase {
   };
 }
 
+const FAKE_COMPENSATION_CUSTOMER_NAMES = new Set([
+  "Thomas Nilsen",
+  "Maria Johansen",
+  "Lina Aas",
+  "Isak Berg",
+]);
+
+function isFakeCompensationCase(customerName: string): boolean {
+  return FAKE_COMPENSATION_CUSTOMER_NAMES.has(customerName.trim());
+}
+
+function filterOutFakeCompensationCases<T extends { customerName: string }>(
+  cases: T[]
+): T[] {
+  return cases.filter((caseRecord) => !isFakeCompensationCase(caseRecord.customerName));
+}
+
 function getCustomerInteractionsCacheKey(userId: string) {
   return `customer-interactions:${userId}`;
 }
 
 export function getCachedCustomerInteractions(): CompensationCase[] | undefined {
-  return getCachedValue<CompensationCase[]>("customer-interactions:latest");
+  const cached = getCachedValue<CompensationCase[]>("customer-interactions:latest");
+  return cached ? filterOutFakeCompensationCases(cached) : undefined;
 }
 
 async function findExistingCustomerIdForInteraction(interactionId: string, userId: string) {
@@ -143,7 +191,9 @@ export async function fetchCustomerInteractions(): Promise<CompensationCase[]> {
       throw new Error(error.message);
     }
 
-    const mapped = ((data ?? []) as CustomerInteractionRow[]).map(mapInteractionRow);
+    const mapped = ((data ?? []) as CustomerInteractionRow[])
+      .map(mapInteractionRow)
+      .filter((caseRecord) => !isFakeCompensationCase(caseRecord.customerName));
     setCachedValue("customer-interactions:latest", mapped);
     return mapped;
   });
@@ -156,13 +206,13 @@ export async function upsertCustomerInteraction(
   const supabase = getSupabaseClient();
   const interactionId = isUuid(caseRecord.id) ? caseRecord.id : createUuid();
   const existingCustomerId = await findExistingCustomerIdForInteraction(interactionId, userId);
+  const isCreate = !existingCustomerId;
   const customerId = await ensureCustomerForCase(caseRecord, existingCustomerId);
 
-  const payload = {
+  const payloadBase = {
     id: interactionId,
     user_id: userId,
     customer_id: customerId,
-    case_number: caseRecord.caseNumber,
     created_by: caseRecord.createdBy,
     assigned_to: normalizeOptionalText(caseRecord.assignedTo),
     customer_name: caseRecord.customerName.trim(),
@@ -196,25 +246,77 @@ export async function upsertCustomerInteraction(
     updated_at: caseRecord.updatedAt,
   };
 
-  const { data, error } = await supabase
+  let responseData: CustomerInteractionRow | null = null;
+  let attempt = 0;
+  const maxAttempts = isCreate ? 6 : 1;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    const payload = {
+      ...payloadBase,
+      case_number: isCreate ? createCaseNumber() : caseRecord.caseNumber,
+    };
+
+    const { data, error } = await supabase
+      .from("customer_interactions")
+      .upsert(payload)
+      .select(
+        "id, customer_id, case_number, created_by, assigned_to, customer_name, customer_phone, customer_email, customer_reference, issue_category, issue_description, related_product_name, related_order_number, internal_notes, compensation_type, compensation_value, currency, replacement_item_name, gift_card_reference, decision_note, fulfillment_mode, status, ready_for_claim_at, claimed_at, completed_at, expiry_date, fulfilled_by, claim_note, archived_at, cancelled_at, archive_reason, activity_log, created_at, updated_at"
+      )
+      .single();
+
+    if (!error) {
+      responseData = data as CustomerInteractionRow;
+      break;
+    }
+
+    if (isCreate && isUniqueCaseNumberViolation(error) && attempt < maxAttempts) {
+      continue;
+    }
+
+    if (isCreate) {
+      throw toSafeCreateError();
+    }
+
+    throw new Error(error.message);
+  }
+
+  if (!responseData) {
+    throw toSafeCreateError();
+  }
+
+  const mapped = mapInteractionRow(responseData);
+  const cacheKey = getCustomerInteractionsCacheKey(userId);
+  const current = getCachedValue<CompensationCase[]>(cacheKey) ?? [];
+  const next = [
+    mapped,
+    ...current.filter(
+      (entry) => entry.id !== mapped.id && !isFakeCompensationCase(entry.customerName)
+    ),
+  ].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  setCachedValue(cacheKey, next);
+  setCachedValue("customer-interactions:latest", next);
+  return mapped;
+}
+
+export async function deleteCustomerInteraction(caseId: string): Promise<void> {
+  const userId = await requireSupabaseUserId();
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
     .from("customer_interactions")
-    .upsert(payload)
-    .select(
-      "id, customer_id, case_number, created_by, assigned_to, customer_name, customer_phone, customer_email, customer_reference, issue_category, issue_description, related_product_name, related_order_number, internal_notes, compensation_type, compensation_value, currency, replacement_item_name, gift_card_reference, decision_note, fulfillment_mode, status, ready_for_claim_at, claimed_at, completed_at, expiry_date, fulfilled_by, claim_note, archived_at, cancelled_at, archive_reason, activity_log, created_at, updated_at"
-    )
-    .single();
+    .delete()
+    .eq("user_id", userId)
+    .eq("id", caseId);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const mapped = mapInteractionRow(data as CustomerInteractionRow);
   const cacheKey = getCustomerInteractionsCacheKey(userId);
   const current = getCachedValue<CompensationCase[]>(cacheKey) ?? [];
-  const next = [mapped, ...current.filter((entry) => entry.id !== mapped.id)].sort((a, b) =>
-    b.updatedAt.localeCompare(a.updatedAt)
+  const next = current.filter(
+    (entry) => entry.id !== caseId && !isFakeCompensationCase(entry.customerName)
   );
   setCachedValue(cacheKey, next);
   setCachedValue("customer-interactions:latest", next);
-  return mapped;
 }

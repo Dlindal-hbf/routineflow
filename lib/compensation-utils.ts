@@ -20,6 +20,7 @@ import type {
   CompensationStatus,
   CompensationTab,
   CompensationType,
+  CompensationVisibleStatus,
 } from "@/lib/compensation-types";
 
 function parseTimestamp(value?: string): number {
@@ -90,6 +91,48 @@ function matchesDateRange(
 
 export function getCompensationStatusLabel(status: CompensationStatus): string {
   return COMPENSATION_STATUS_LABELS[status];
+}
+
+export function getCompensationVisibleStatus(
+  status: CompensationStatus
+): CompensationVisibleStatus {
+  switch (status) {
+    case "completed":
+    case "cancelled":
+    case "expired":
+      return "closed";
+    default:
+      return "open";
+  }
+}
+
+export function resolveCompensationVisibleStatus(
+  caseRecord: CompensationCase,
+  now: Date = new Date()
+): CompensationVisibleStatus {
+  return getCompensationVisibleStatus(resolveCompensationStatus(caseRecord, now));
+}
+
+export function getCompensationVisibleStatusLabel(
+  status: CompensationVisibleStatus
+): string {
+  switch (status) {
+    case "closed":
+      return "Closed";
+    default:
+      return "Open";
+  }
+}
+
+export function getCompensationVisibleStatusBadgeClassName(
+  status: CompensationVisibleStatus
+): string {
+  switch (status) {
+    case "closed":
+      return "border-slate-300 bg-slate-100 text-slate-700";
+    default:
+      return "border-primary/20 bg-primary/10 text-primary";
+  }
 }
 
 export function getCompensationStatusBadgeClassName(
@@ -171,20 +214,7 @@ export function isCompensationClaimable(
   caseRecord: CompensationCase,
   now: Date = new Date()
 ): boolean {
-  if (resolveCompensationStatus(caseRecord, now) !== "ready_for_claim") {
-    return false;
-  }
-
-  if (!caseRecord.readyForClaimAt) {
-    return true;
-  }
-
-  const readyTime = parseTimestamp(caseRecord.readyForClaimAt);
-  if (Number.isNaN(readyTime)) {
-    return true;
-  }
-
-  return readyTime <= now.getTime();
+  return resolveCompensationVisibleStatus(caseRecord, now) === "open";
 }
 
 export function isCompensationEditable(
@@ -297,7 +327,7 @@ export function filterCompensationCases(
   const phoneQuery = normalizePhoneSearchValue(filters.query);
 
   return cases.filter((caseRecord) => {
-    const resolvedStatus = resolveCompensationStatus(caseRecord, now);
+    const visibleStatus = resolveCompensationVisibleStatus(caseRecord, now);
     const searchableText = buildCompensationSearchText(caseRecord);
     const matchesQuery =
       normalizedQuery.length === 0 ||
@@ -306,7 +336,7 @@ export function filterCompensationCases(
       (phoneQuery.length > 0 && searchableText.includes(phoneQuery));
 
     const matchesStatus =
-      filters.status === "all" || resolvedStatus === filters.status;
+      filters.status === "all" || visibleStatus === filters.status;
     const matchesType =
       filters.compensationType === "all" ||
       caseRecord.compensationType === filters.compensationType;
@@ -334,21 +364,6 @@ export function sortCompensationCases(
   return [...cases].sort((a, b) => {
     if (sortKey === "customer_name") {
       return a.customerName.localeCompare(b.customerName, "nb-NO");
-    }
-
-    if (sortKey === "ready_for_claim") {
-      const aTime = parseTimestamp(a.readyForClaimAt);
-      const bTime = parseTimestamp(b.readyForClaimAt);
-      if (Number.isNaN(aTime) && Number.isNaN(bTime)) {
-        return b.updatedAt.localeCompare(a.updatedAt);
-      }
-      if (Number.isNaN(aTime)) {
-        return 1;
-      }
-      if (Number.isNaN(bTime)) {
-        return -1;
-      }
-      return aTime - bTime;
     }
 
     const aValue =
@@ -383,18 +398,8 @@ export function selectOpenCompensationCases(
   cases: CompensationCase[],
   now: Date = new Date()
 ): CompensationCase[] {
-  return cases.filter((caseRecord) => {
-    const resolvedStatus = resolveCompensationStatus(caseRecord, now);
-    return resolvedStatus !== "ready_for_claim" && !isCompensationArchived(caseRecord, now);
-  });
-}
-
-export function selectReadyForClaimCompensationCases(
-  cases: CompensationCase[],
-  now: Date = new Date()
-): CompensationCase[] {
   return cases.filter(
-    (caseRecord) => resolveCompensationStatus(caseRecord, now) === "ready_for_claim"
+    (caseRecord) => resolveCompensationVisibleStatus(caseRecord, now) === "open"
   );
 }
 
@@ -450,14 +455,10 @@ export function selectCompensationCasesForTab(
   switch (tab) {
     case "open":
       return selectOpenCompensationCases(cases, now);
-    case "ready":
-      return selectReadyForClaimCompensationCases(cases, now);
     case "closed":
       return selectArchivedCompensationCases(cases, now);
     case "active":
       return selectActiveCompensationCases(cases, now);
-    case "ready_for_claim":
-      return selectReadyForClaimCompensationCases(cases, now);
     case "completed":
       return selectCompletedCompensationCases(cases, now);
     case "archive":

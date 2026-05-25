@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, CircleDot, PenLine, Phone, UserRound } from "lucide-react";
+import { CheckCircle2, CircleDot, PenLine, Phone, Trash2, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import CompensationStatusBadge from "@/components/CompensationStatusBadge";
@@ -18,16 +18,16 @@ interface CompensationCaseCardProps {
   caseRecord: CompensationCase;
   onOpen: (caseRecord: CompensationCase) => void;
   onEdit?: (caseRecord: CompensationCase) => void;
-  onMarkReady?: (caseRecord: CompensationCase) => void;
   onComplete?: (caseRecord: CompensationCase) => void;
+  onDelete?: (caseRecord: CompensationCase) => void;
 }
 
 export default function CompensationCaseCard({
   caseRecord,
   onOpen,
   onEdit,
-  onMarkReady,
   onComplete,
+  onDelete,
 }: CompensationCaseCardProps) {
   const resolvedStatus = resolveCompensationStatus(caseRecord);
   const claimable = isCompensationClaimable(caseRecord);
@@ -90,16 +90,6 @@ export default function CompensationCaseCard({
                 </Button>
               )}
 
-              {onMarkReady && resolvedStatus === "pending" && (
-                <Button
-                  size="sm"
-                  onClick={() => onMarkReady(caseRecord)}
-                  className="rounded-lg"
-                >
-                  Mark ready
-                </Button>
-              )}
-
               {onComplete && claimable && (
                 <Button
                   size="sm"
@@ -108,6 +98,18 @@ export default function CompensationCaseCard({
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   Claim
+                </Button>
+              )}
+
+              {onDelete && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onDelete(caseRecord)}
+                  className="rounded-lg text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
                 </Button>
               )}
             </div>

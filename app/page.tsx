@@ -1651,86 +1651,47 @@ export default function WorkplaceRoutinesDemoStyle() {
           )}
           <header className="border-b-4 border-primary bg-background shadow-sm">
             <div className="mx-auto max-w-7xl px-6 py-8">
-              <div className="mb-4 h-1 w-40 rounded-full bg-accent" />
+              <div className="mb-3 h-1 w-32 rounded-full bg-accent" />
               <PageHeader
                 title={
                   <div className="flex items-center gap-4">
-                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-primary/15 bg-primary/10">
-                      <ClipboardList className="h-8 w-8 text-primary" />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/15 bg-primary/10">
+                      <ClipboardList className="h-6 w-6 text-primary" />
                     </div>
-                    <span className="text-2xl font-heading font-semibold text-primary">
+                    <span className="text-xl font-heading font-semibold text-primary">
                       PB INTERNE RUTINER
                     </span>
                   </div>
                 }
                 subtitle="Daglige oppgaver og rutiner for alle avdelinger"
                 actions={
-                  <div className="flex flex-wrap gap-3">
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={() => setView("history")}
-                    >
-                      <Calendar className="mr-3 h-6 w-6" />
-                      History
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={() => setView("work-log")}
-                    >
-                      <BookOpen className="mr-3 h-6 w-6" />
-                      Work Log
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={() => setView("workers")}
-                    >
-                      <Users className="mr-3 h-6 w-6" />
-                      Workers
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={() => setView("compensation")}
-                    >
-                      <HandCoins className="mr-3 h-6 w-6" />
-                      Compensation
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="h-14 rounded-2xl px-6 text-2xl"
-                      onClick={() => setView("inventory")}
-                    >
-                      <Package className="mr-3 h-6 w-6" />
-                      Inventory
-                    </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { key: "work-log", label: "Work Log", icon: BookOpen },
+                      { key: "compensation", label: "Compensation", icon: HandCoins },
+                      { key: "inventory", label: "Inventory", icon: Package },
+                      { key: "workers", label: "Workers", icon: Users },
+                    ].map((item) => {
+                      const Icon = item.icon;
+                      const isActive = view === item.key;
+                      return (
+                        <Button
+                          key={item.key}
+                          variant={isActive ? "default" : "outline"}
+                          className={cn(
+                            "h-10 rounded-xl px-4 text-sm font-medium",
+                            !isActive && "text-slate-600 hover:text-slate-900"
+                          )}
+                          onClick={() => setView(item.key as View)}
+                        >
+                          <Icon className="h-4 w-4" />
+                          {item.label}
+                        </Button>
+                      );
+                    })}
                   </div>
                 }
               />
-              <nav className="mt-6 flex space-x-8 text-lg font-medium">
-                {[
-                  { key: "overview", label: "Overview" },
-                  { key: "work-log", label: "Work Log" },
-                  { key: "compensation", label: "Compensation" },
-                  { key: "inventory", label: "Inventory" },
-                  { key: "workers", label: "Workers" },
-                ].map((item) => (
-                  <button
-                    key={item.key}
-                    onClick={() => setView(item.key as View)}
-                    className={cn(
-                      "pb-2",
-                      view === item.key
-                        ? "text-primary border-b-2 border-primary"
-                        : "text-foreground/60 hover:text-foreground"
-                    )}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </nav>
             </div>
           </header>
 

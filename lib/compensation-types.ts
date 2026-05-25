@@ -8,6 +8,8 @@ export type CompensationStatus =
   | "cancelled"
   | "expired";
 
+export type CompensationVisibleStatus = "open" | "closed";
+
 export type CompensationFulfillmentMode = "immediate" | "later_claim";
 
 export type CompensationType =
@@ -36,11 +38,9 @@ export type CompensationActivityType =
 
 export type CompensationTab =
   | "open"
-  | "ready"
   | "closed"
   | "all"
   | "active"
-  | "ready_for_claim"
   | "completed"
   | "archive";
 
@@ -48,7 +48,6 @@ export type CompensationSortKey =
   | "newest"
   | "oldest"
   | "customer_name"
-  | "ready_for_claim"
   | "last_updated";
 
 export type CompensationDateFilter =
@@ -140,7 +139,7 @@ export interface CompensationCancelPayload {
 
 export interface CompensationCaseFilters {
   query: string;
-  status: CompensationStatus | "all";
+  status: CompensationVisibleStatus | "all";
   compensationType: CompensationType | "all";
   issueCategory: CompensationIssueCategory | "all";
   dateRange: CompensationDateFilter;

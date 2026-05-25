@@ -3,8 +3,9 @@
 import { Badge } from "@/components/ui/badge";
 import type { CompensationStatus } from "@/lib/compensation-types";
 import {
-  getCompensationStatusBadgeClassName,
-  getCompensationStatusLabel,
+  getCompensationVisibleStatusBadgeClassName,
+  getCompensationVisibleStatusLabel,
+  getCompensationVisibleStatus,
 } from "@/lib/compensation-utils";
 
 interface CompensationStatusBadgeProps {
@@ -14,14 +15,16 @@ interface CompensationStatusBadgeProps {
 export default function CompensationStatusBadge({
   status,
 }: CompensationStatusBadgeProps) {
+  const visibleStatus = getCompensationVisibleStatus(status);
+
   return (
     <Badge
       variant="outline"
-      className={`rounded-full border px-3 py-1 text-sm ${getCompensationStatusBadgeClassName(
-        status
+      className={`rounded-full border px-3 py-1 text-sm ${getCompensationVisibleStatusBadgeClassName(
+        visibleStatus
       )}`}
     >
-      {getCompensationStatusLabel(status)}
+      {getCompensationVisibleStatusLabel(visibleStatus)}
     </Badge>
   );
 }

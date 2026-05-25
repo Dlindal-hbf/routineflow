@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle,
   ArrowLeft,
   ChevronDown,
   ChevronUp,
@@ -12,6 +11,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { AppSelect } from "@/components/ui/app-select";
 import HistoryEmptyState from "@/components/history/HistoryEmptyState";
@@ -20,19 +26,15 @@ import CompensationCaseDetailDialog from "@/components/CompensationCaseDetailDia
 import CompensationCaseFormDialog from "@/components/CompensationCaseFormDialog";
 import {
   compensationIssueFilterOptions,
-  compensationStatusFilterOptions,
   compensationTypeFilterOptions,
   renderCompensationIssueOption,
   renderCompensationIssueValue,
-  renderCompensationStatusOption,
-  renderCompensationStatusValue,
   renderCompensationTypeOption,
   renderCompensationTypeValue,
 } from "@/components/CompensationSelectContent";
 import {
   COMPENSATION_DATE_FILTER_OPTIONS,
   COMPENSATION_SORT_OPTIONS,
-  COMPENSATION_TABS,
   DEFAULT_COMPENSATION_FORM_VALUE,
 } from "@/lib/compensation-constants";
 import {
@@ -46,15 +48,11 @@ import type {
 } from "@/lib/compensation-types";
 import { useCompensationCases } from "@/lib/use-compensation-cases";
 import {
-  countCompletedCompensationCasesToday,
   filterCompensationCases,
   isCompensationEditable,
-  resolveCompensationStatus,
   selectArchivedCompensationCases,
   selectCompensationCasesForTab,
   selectOpenCompensationCases,
-  selectOverdueCompensationCases,
-  selectReadyForClaimCompensationCases,
   sortCompensationCases,
 } from "@/lib/compensation-utils";
 
@@ -64,24 +62,7 @@ interface CompensationModuleProps {
   onHistoryEntry?: (description: string) => void;
 }
 
-function SummaryCard({
-  label,
-  value,
-  accentClassName,
-}: {
-  label: string;
-  value: number;
-  accentClassName?: string;
-}) {
-  return (
-    <Card className={`rounded-3xl border bg-white shadow-sm ${accentClassName || "border-slate-200"}`}>
-      <CardContent className="p-6">
-        <div className="text-4xl font-bold text-slate-900">{value}</div>
-        <div className="mt-2 text-lg text-slate-500">{label}</div>
-      </CardContent>
-    </Card>
-  );
-}
+type CaseStatusFilter = "open" | "closed";
 
 export default function CompensationModule({
   onBack,
@@ -95,12 +76,13 @@ export default function CompensationModule({
     error,
     createCase,
     updateCase,
-    markReadyForClaim,
     completeCase,
+    reopenCase,
     cancelCase,
+    deleteCase,
   } = useCompensationCases();
 
-  const [tab, setTab] = useState<CompensationTab>("open");
+  const [statusFilter, setStatusFilter] = useState<CaseStatusFilter>("open");
   const [filters, setFilters] = useState<CompensationCaseFilters>({
     query: "",
     status: "all",
@@ -116,6 +98,9 @@ export default function CompensationModule({
   const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [casePendingDelete, setCasePendingDelete] = useState<CompensationCase | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
 
   const selectedCase = useMemo(
     () => cases.find((caseRecord) => caseRecord.id === selectedCaseId) ?? null,
@@ -123,22 +108,19 @@ export default function CompensationModule({
   );
 
   const openCases = useMemo(() => selectOpenCompensationCases(cases), [cases]);
-  const readyCases = useMemo(() => selectReadyForClaimCompensationCases(cases), [cases]);
   const closedCases = useMemo(() => selectArchivedCompensationCases(cases), [cases]);
-  const overdueCases = useMemo(() => selectOverdueCompensationCases(cases), [cases]);
-  const completedTodayCount = useMemo(() => countCompletedCompensationCasesToday(cases), [cases]);
 
   const baseCasesForTab = useMemo(
-    () => selectCompensationCasesForTab(cases, tab),
-    [cases, tab]
+    () => selectCompensationCasesForTab(cases, statusFilter as CompensationTab),
+    [cases, statusFilter]
   );
 
   const visibleCases = useMemo(() => {
     const filtered = filterCompensationCases(baseCasesForTab, filters, {
-      useClosedAt: tab === "closed" || tab === "archive",
+      useClosedAt: statusFilter === "closed",
     });
     return sortCompensationCases(filtered, sortKey);
-  }, [baseCasesForTab, filters, sortKey, tab]);
+  }, [baseCasesForTab, filters, sortKey, statusFilter]);
 
   const commitHistory = (description: string | undefined) => {
     if (description && onHistoryEntry) {
@@ -195,14 +177,6 @@ export default function CompensationModule({
     setFormOpen(false);
   };
 
-  const handleMarkReady = async (caseRecord: CompensationCase) => {
-    const result = await markReadyForClaim(caseRecord.id, currentActor);
-    if (result) {
-      commitHistory(result.historyMessage);
-      setSelectedCaseId(result.caseRecord.id);
-    }
-  };
-
   const handleComplete = async (
     caseRecord: CompensationCase,
     payload: { fulfilledBy: string; claimNote: string }
@@ -223,6 +197,45 @@ export default function CompensationModule({
       commitHistory(result.historyMessage);
       setSelectedCaseId(result.caseRecord.id);
     }
+  };
+
+  const handleDelete = async (caseRecord: CompensationCase) => {
+    const result = await deleteCase(caseRecord.id);
+    if (result) {
+      commitHistory(result.historyMessage);
+      if (selectedCaseId === caseRecord.id) {
+        setSelectedCaseId(null);
+        setDetailOpen(false);
+      }
+    }
+    return result;
+  };
+
+  const handleReopen = async (caseRecord: CompensationCase) => {
+    const result = await reopenCase(caseRecord.id, currentActor);
+    if (result) {
+      commitHistory(result.historyMessage);
+      setSelectedCaseId(result.caseRecord.id);
+    }
+  };
+
+  const requestDelete = (caseRecord: CompensationCase) => {
+    setCasePendingDelete(caseRecord);
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!casePendingDelete || deletePending) {
+      return;
+    }
+
+    setDeletePending(true);
+    const result = await handleDelete(casePendingDelete);
+    if (result) {
+      setDeleteConfirmOpen(false);
+      setCasePendingDelete(null);
+    }
+    setDeletePending(false);
   };
 
   return (
@@ -268,46 +281,27 @@ export default function CompensationModule({
         )}
 
         <>
-        {overdueCases.length > 0 && (
-          <div className="mb-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/20 px-5 py-4 text-accent-foreground">
-            <AlertTriangle className="h-5 w-5" />
-            <span>
-              {overdueCases.length} compensation case{overdueCases.length === 1 ? "" : "s"}{" "}
-              have expired and were moved into Closed.
-            </span>
-          </div>
-        )}
-
-        <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Open cases" value={openCases.length} />
-          <SummaryCard
-            label="Ready"
-            value={readyCases.length}
-            accentClassName="border-primary"
-          />
-          <SummaryCard label="Closed cases" value={closedCases.length} />
-          <SummaryCard label="Completed today" value={completedTodayCount} />
+        <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2">
+          {[
+            { key: "open" as CaseStatusFilter, label: "Open", count: openCases.length },
+            { key: "closed" as CaseStatusFilter, label: "Closed", count: closedCases.length },
+          ].map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setStatusFilter(option.key)}
+              className={
+                statusFilter === option.key
+                  ? "rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white"
+                  : "rounded-xl px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
+              }
+            >
+              {option.label} ({option.count})
+            </button>
+          ))}
         </div>
 
-        <div className="border-b border-slate-200">
-          <div className="flex flex-wrap gap-6 text-lg font-medium">
-            {COMPENSATION_TABS.map((tabOption) => (
-              <button
-                key={tabOption.value}
-                onClick={() => setTab(tabOption.value)}
-                className={
-                  tab === tabOption.value
-                    ? "border-b-2 border-primary pb-3 text-primary"
-                    : "pb-3 text-foreground/60 hover:text-foreground"
-                }
-              >
-                {tabOption.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-8 mb-8 grid gap-4 xl:grid-cols-[1.4fr_repeat(3,minmax(0,0.8fr))]">
+        <div className="mt-8 mb-8 grid gap-4 xl:grid-cols-[1.4fr_repeat(2,minmax(0,0.8fr))]">
           <div className="relative">
             <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
             <Input
@@ -319,21 +313,6 @@ export default function CompensationModule({
               className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-xl"
             />
           </div>
-
-          <AppSelect
-            value={filters.status}
-            onValueChange={(nextValue) =>
-              setFilters((current) => ({
-                ...current,
-                status: nextValue as CompensationCaseFilters["status"],
-              }))
-            }
-            options={compensationStatusFilterOptions}
-            size="lg"
-            triggerLabel="Status"
-            renderValue={renderCompensationStatusValue}
-            renderOption={renderCompensationStatusOption}
-          />
 
           <AppSelect
             value={filters.compensationType}
@@ -437,13 +416,8 @@ export default function CompensationModule({
                     ? openEditDialog
                     : undefined
                 }
-                onMarkReady={
-                  resolveCompensationStatus(caseRecord) === "pending" &&
-                  caseRecord.fulfillmentMode === "later_claim"
-                    ? handleMarkReady
-                    : undefined
-                }
                 onComplete={openDetailDialog}
+                onDelete={requestDelete}
               />
             ))}
           </div>
@@ -459,7 +433,6 @@ export default function CompensationModule({
         onChange={setFormValue}
         onSubmit={submitForm}
       />
-
       <CompensationCaseDetailDialog
         open={detailOpen}
         onOpenChange={setDetailOpen}
@@ -469,10 +442,54 @@ export default function CompensationModule({
           setDetailOpen(false);
           openEditDialog(caseRecord);
         }}
-        onMarkReady={handleMarkReady}
         onComplete={handleComplete}
+        onReopen={handleReopen}
         onCancel={handleCancel}
+        onDelete={requestDelete}
+        deletePending={deletePending && casePendingDelete?.id === selectedCase?.id}
       />
+
+      <Dialog
+        open={deleteConfirmOpen}
+        onOpenChange={(nextOpen) => {
+          if (deletePending) {
+            return;
+          }
+          setDeleteConfirmOpen(nextOpen);
+          if (!nextOpen) {
+            setCasePendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md rounded-3xl border border-slate-200 bg-white shadow-xl">
+          <DialogHeader>
+            <DialogTitle>Delete case?</DialogTitle>
+            <DialogDescription>
+              This case will be permanently deleted. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteConfirmOpen(false);
+                setCasePendingDelete(null);
+              }}
+              disabled={deletePending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              className="min-w-[120px] bg-red-600 text-white hover:bg-red-700"
+              onClick={() => void confirmDelete()}
+              disabled={deletePending}
+            >
+              {deletePending ? "Deleting..." : "Delete case"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

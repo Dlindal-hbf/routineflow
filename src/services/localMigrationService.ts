@@ -1,10 +1,6 @@
 "use client";
 
-import type { CompensationCase } from "@/lib/compensation-types";
 import type { ActivityHistoryEntry } from "@/lib/history-types";
-import {
-  COMPENSATION_STORAGE_KEY,
-} from "@/lib/compensation-constants";
 import {
   DEFAULT_TIMEZONE,
   ROUTINE_TASK_HISTORY_KEY,
@@ -34,7 +30,6 @@ import {
   saveTaskListRecords,
 } from "@/src/services/taskService";
 import { fetchActivityHistoryEntries, saveActivityHistoryEntries } from "@/src/services/activityService";
-import { upsertCustomerInteraction, fetchCustomerInteractions } from "@/src/services/customerInteractionService";
 import { fetchWorkLogEntries, saveWorkLogEntries, type WorkLogEntryRecord } from "@/src/services/workLogService";
 import { requireSupabaseUserId } from "@/src/services/serviceUtils";
 
@@ -87,10 +82,6 @@ function readLegacyWorkLog(): WorkLogEntryRecord[] {
 
 function readLegacyActivityHistory(): ActivityHistoryEntry[] {
   return safeParse<ActivityHistoryEntry[]>(localStorage.getItem(ACTIVITY_HISTORY_KEY), []);
-}
-
-function readLegacyCompensationCases(): CompensationCase[] {
-  return safeParse<CompensationCase[]>(localStorage.getItem(COMPENSATION_STORAGE_KEY), []);
 }
 
 function readLegacyBunnerCurrent() {
@@ -223,14 +214,12 @@ async function runMigration() {
     remoteTaskBundle,
     remoteBunnerState,
     remoteOstState,
-    remoteCompensationCases,
     remoteWorkLog,
     remoteActivityHistory,
   ] = await Promise.all([
     fetchTaskStorageBundle(),
     fetchBunnerInventoryState(),
     fetchOstInventoryState(),
-    fetchCustomerInteractions(),
     fetchWorkLogEntries(),
     fetchActivityHistoryEntries(),
   ]);
@@ -260,13 +249,6 @@ async function runMigration() {
   ) {
     await saveOstCurrentState(readLegacyOstCurrent(), readLegacyOstMeta());
     await saveOstSnapshots(readLegacyOstSnapshots());
-  }
-
-  const legacyCompensationCases = readLegacyCompensationCases();
-  if (legacyCompensationCases.length > 0 && remoteCompensationCases.length === 0) {
-    for (const caseRecord of legacyCompensationCases) {
-      await upsertCustomerInteraction(caseRecord);
-    }
   }
 
   const legacyWorkLog = readLegacyWorkLog();

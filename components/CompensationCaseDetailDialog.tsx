@@ -21,8 +21,9 @@ import {
   getCompensationActivityLabel,
   getCompensationAssignedOwner,
   getCompensationIssueCategoryLabel,
-  getCompensationStatusLabel,
   getCompensationSummary,
+  getCompensationVisibleStatusLabel,
+  resolveCompensationVisibleStatus,
   isCompensationClaimable,
   isCompensationEditable,
   resolveCompensationStatus,
@@ -34,15 +35,17 @@ interface CompensationCaseDetailDialogProps {
   caseRecord: CompensationCase | null;
   currentActor: string;
   onEdit: (caseRecord: CompensationCase) => void;
-  onMarkReady: (caseRecord: CompensationCase) => void;
   onComplete: (
     caseRecord: CompensationCase,
     payload: { fulfilledBy: string; claimNote: string }
   ) => void;
+  onReopen: (caseRecord: CompensationCase) => void;
   onCancel: (
     caseRecord: CompensationCase,
     payload: { actor: string; archiveReason: string }
   ) => void;
+  onDelete: (caseRecord: CompensationCase) => void;
+  deletePending?: boolean;
 }
 
 function Section({
@@ -85,9 +88,11 @@ export default function CompensationCaseDetailDialog({
   caseRecord,
   currentActor,
   onEdit,
-  onMarkReady,
   onComplete,
+  onReopen,
   onCancel,
+  onDelete,
+  deletePending = false,
 }: CompensationCaseDetailDialogProps) {
   const [fulfillmentName, setFulfillmentName] = useState(currentActor);
   const [claimNote, setClaimNote] = useState("");
@@ -110,6 +115,7 @@ export default function CompensationCaseDetailDialog({
   }
 
   const resolvedStatus = resolveCompensationStatus(caseRecord);
+  const visibleStatus = resolveCompensationVisibleStatus(caseRecord);
   const canEdit = isCompensationEditable(caseRecord);
   const canComplete = isCompensationClaimable(caseRecord);
   const orderedActivity = [...caseRecord.activityLog].sort((a, b) =>
@@ -184,7 +190,7 @@ export default function CompensationCaseDetailDialog({
               <DetailRow label="Action" value={getCompensationSummary(caseRecord)} />
               <DetailRow
                 label="Status"
-                value={getCompensationStatusLabel(resolvedStatus)}
+                value={getCompensationVisibleStatusLabel(visibleStatus)}
               />
               <DetailRow
                 label="Responsible"
@@ -244,9 +250,6 @@ export default function CompensationCaseDetailDialog({
                     </Button>
                     <Button
                       onClick={() => {
-                        if (!window.confirm("Complete this claim now?")) {
-                          return;
-                        }
                         onComplete(caseRecord, {
                           fulfilledBy: fulfillmentName,
                           claimNote,
@@ -254,7 +257,7 @@ export default function CompensationCaseDetailDialog({
                         resetPanels();
                       }}
                     >
-                      Confirm completion
+                      Mark closed
                     </Button>
                   </div>
                 </div>
@@ -333,13 +336,6 @@ export default function CompensationCaseDetailDialog({
                 Edit case
               </Button>
             )}
-            {canEdit &&
-              resolvedStatus === "pending" &&
-              caseRecord.fulfillmentMode === "later_claim" && (
-                <Button variant="outline" onClick={() => onMarkReady(caseRecord)}>
-                  Mark ready
-                </Button>
-              )}
             {canEdit && canComplete && (
               <Button
                 onClick={() => {
@@ -348,9 +344,18 @@ export default function CompensationCaseDetailDialog({
                   setShowCompletePanel(true);
                 }}
               >
-                Claim
+                Mark closed
               </Button>
             )}
+            <Button
+              variant="destructive"
+              disabled={deletePending}
+              onClick={() => {
+                onDelete(caseRecord);
+              }}
+            >
+              {deletePending ? "Deleting..." : "Delete"}
+            </Button>
             {canEdit && (
               <Button
                 variant="destructive"
@@ -360,6 +365,11 @@ export default function CompensationCaseDetailDialog({
                 }}
               >
                 Close case
+              </Button>
+            )}
+            {!canEdit && (
+              <Button variant="outline" onClick={() => onReopen(caseRecord)}>
+                Reopen case
               </Button>
             )}
           </div>
