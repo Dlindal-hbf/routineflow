@@ -269,18 +269,7 @@ export default function CompensationModule({
           </div>
         )}
 
-        {refreshing && !loading && (
-          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-slate-600 shadow-sm">
-            Refreshing compensation cases...
-          </div>
-        )}
-
-        {loading ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
-            Loading compensation cases...
-          </div>
-        ) : (
-          <>
+        <>
         {overdueCases.length > 0 && (
           <div className="mb-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/20 px-5 py-4 text-accent-foreground">
             <AlertTriangle className="h-5 w-5" />
@@ -430,6 +419,20 @@ export default function CompensationModule({
           />
         ) : (
           <div className="space-y-5">
+            {refreshing && (
+              <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
+                <CardContent className="p-4 text-sm text-slate-500">
+                  Refreshing the latest compensation cases in the background...
+                </CardContent>
+              </Card>
+            )}
+            {loading && !refreshing && (
+              <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
+                <CardContent className="p-4 text-sm text-slate-500">
+                  Loading compensation cases...
+                </CardContent>
+              </Card>
+            )}
             {visibleCases.map((caseRecord) => (
               <CompensationCaseCard
                 key={caseRecord.id}
@@ -451,8 +454,7 @@ export default function CompensationModule({
             ))}
           </div>
         )}
-          </>
-        )}
+        </>
       </main>
 
       <CompensationCaseFormDialog

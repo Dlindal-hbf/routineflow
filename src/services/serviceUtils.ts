@@ -1,8 +1,22 @@
 "use client";
 
 import { getSupabaseClient } from "@/src/lib/supabaseClient";
+import {
+  ensureSupabaseSessionState,
+  getSupabaseSessionState,
+} from "@/src/hooks/useSupabaseSession";
 
 export async function requireSupabaseUserId(): Promise<string> {
+  const currentState = getSupabaseSessionState();
+  if (currentState.user?.id) {
+    return currentState.user.id;
+  }
+
+  const bootstrappedState = await ensureSupabaseSessionState();
+  if (bootstrappedState.user?.id) {
+    return bootstrappedState.user.id;
+  }
+
   const supabase = getSupabaseClient();
   const {
     data: { user },

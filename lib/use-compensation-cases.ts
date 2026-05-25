@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   cancelCompensationCaseRecord,
   completeCompensationCaseRecord,
@@ -16,11 +16,16 @@ import type {
   CompensationMutationResult,
 } from "@/lib/compensation-types";
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
+import { isCachedValueStale } from "@/src/services/clientCache";
 import {
   fetchCustomerInteractions,
   getCachedCustomerInteractions,
   upsertCustomerInteraction,
 } from "@/src/services/customerInteractionService";
+import { runBackgroundSync } from "@/src/services/backgroundSync";
+
+const CUSTOMER_INTERACTIONS_CACHE_KEY = "customer-interactions:latest";
+const COMPENSATION_STALE_AFTER_MS = 30_000;
 
 type MutationFn = (
   currentCases: CompensationCase[]
@@ -33,6 +38,11 @@ export function useCompensationCases(enabled = true) {
   const [loading, setLoading] = useState(enabled && !hasCachedCases);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const latestCasesRef = useRef(cases);
+
+  useEffect(() => {
+    latestCasesRef.current = cases;
+  }, [cases]);
 
   useEffect(() => {
     if (!enabled) {
@@ -41,14 +51,31 @@ export function useCompensationCases(enabled = true) {
     }
 
     let isMounted = true;
+    const shouldRefresh =
+      !hasCachedCases ||
+      isCachedValueStale(CUSTOMER_INTERACTIONS_CACHE_KEY, COMPENSATION_STALE_AFTER_MS);
 
     const load = async () => {
+      if (!shouldRefresh) {
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
+
       try {
         setLoading(!hasCachedCases);
         setRefreshing(hasCachedCases);
         setError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const fetchedCases = await fetchCustomerInteractions();
+        const fetchedCases = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return fetchCustomerInteractions();
+          },
+          {
+            errorMessage:
+              "Could not refresh compensation cases. Showing the last saved data.",
+          }
+        );
         if (!isMounted) {
           return;
         }
@@ -78,40 +105,49 @@ export function useCompensationCases(enabled = true) {
   const runMutation = async (
     mutation: MutationFn
   ): Promise<CompensationMutationResult | null> => {
-    const outcome = mutation(cases);
+    const currentCases = latestCasesRef.current;
+    const outcome = mutation(currentCases);
     if (!outcome) {
       return null;
     }
 
-    try {
-      setError(null);
-      const persisted = await upsertCustomerInteraction(outcome.result.caseRecord);
-      setCases((current) => {
-        const withoutPrevious = current.filter((caseRecord) => {
-          if (caseRecord.id === outcome.result.caseRecord.id) {
-            return false;
+    setError(null);
+    setCases(outcome.nextCases);
+
+    void runBackgroundSync(
+      () => upsertCustomerInteraction(outcome.result.caseRecord),
+      {
+        errorMessage: "Could not save the compensation case. The failed change was reverted.",
+        onError: (mutationError) => {
+          setError(
+            mutationError instanceof Error
+              ? mutationError.message
+              : "Failed to save compensation case."
+          );
+          if (latestCasesRef.current === outcome.nextCases) {
+            setCases(currentCases);
           }
+        },
+      }
+    )
+      .then((persisted) => {
+        setCases((current) => {
+          const withoutPrevious = current.filter((caseRecord) => {
+            if (caseRecord.id === outcome.result.caseRecord.id) {
+              return false;
+            }
 
-          return caseRecord.caseNumber !== persisted.caseNumber;
+            return caseRecord.caseNumber !== persisted.caseNumber;
+          });
+
+          return [persisted, ...withoutPrevious].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt)
+          );
         });
+      })
+      .catch(() => undefined);
 
-        return [persisted, ...withoutPrevious].sort((a, b) =>
-          b.updatedAt.localeCompare(a.updatedAt)
-        );
-      });
-
-      return {
-        ...outcome.result,
-        caseRecord: persisted,
-      };
-    } catch (mutationError) {
-      setError(
-        mutationError instanceof Error
-          ? mutationError.message
-          : "Failed to save compensation case."
-      );
-      return null;
-    }
+    return outcome.result;
   };
 
   return {
@@ -124,7 +160,10 @@ export function useCompensationCases(enabled = true) {
       setRefreshing(cases.length > 0);
       setError(null);
       try {
-        const fetchedCases = await fetchCustomerInteractions();
+        const fetchedCases = await runBackgroundSync(() => fetchCustomerInteractions(), {
+          errorMessage:
+            "Could not refresh compensation cases. Showing the last saved data.",
+        });
         setCases(fetchedCases);
       } catch (reloadError) {
         setError(reloadError instanceof Error ? reloadError.message : "Failed to reload compensation cases.");

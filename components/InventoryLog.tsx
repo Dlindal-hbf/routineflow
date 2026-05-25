@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AppSelect } from "@/components/ui/app-select";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
+import { isCachedValueStale } from "@/src/services/clientCache";
+import { runBackgroundSync } from "@/src/services/backgroundSync";
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
 import {
   BUNNER_CATEGORIES,
@@ -52,6 +54,9 @@ function getSnapshotId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const INVENTORY_CACHE_KEY = "inventory:bunner:latest";
+const INVENTORY_STALE_AFTER_MS = 30_000;
+
 export type { Category, Metric };
 
 export default function InventoryLog(props?: {
@@ -68,21 +73,45 @@ export default function InventoryLog(props?: {
   const [entries, setEntries] = useState<InventoryData>(cachedState?.entries ?? createEmptyBunnerWeek);
   const [snapshots, setSnapshots] = useState<InventorySnapshot[]>(cachedState?.snapshots ?? []);
   const [loading, setLoading] = useState(!hasCachedState);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(hasCachedState);
+  const latestEntriesRef = useRef(entries);
+  const latestSnapshotsRef = useRef(snapshots);
+  const lastSyncedEntriesRef = useRef(entries);
+  const lastSyncedSnapshotsRef = useRef(snapshots);
+
+  useEffect(() => {
+    latestEntriesRef.current = entries;
+  }, [entries]);
+
+  useEffect(() => {
+    latestSnapshotsRef.current = snapshots;
+  }, [snapshots]);
 
   useEffect(() => {
     let isMounted = true;
+    const shouldRefresh =
+      !hasCachedState || isCachedValueStale(INVENTORY_CACHE_KEY, INVENTORY_STALE_AFTER_MS);
 
     const load = async () => {
+      if (!shouldRefresh) {
+        setLoading(false);
+        setHydrated(true);
+        return;
+      }
+
       try {
         setLoading(!hasCachedState);
-        setRefreshing(hasCachedState);
         setError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const state = await fetchBunnerInventoryState();
+        const state = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return fetchBunnerInventoryState();
+          },
+          {
+            errorMessage: "Could not refresh inventory. Showing the last saved values.",
+          }
+        );
         if (!isMounted) {
           return;
         }
@@ -90,6 +119,8 @@ export default function InventoryLog(props?: {
         setEntries(state.entries);
         setSnapshots(state.snapshots);
         setHydrated(true);
+        lastSyncedEntriesRef.current = state.entries;
+        lastSyncedSnapshotsRef.current = state.snapshots;
       } catch (loadError) {
         if (isMounted) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
@@ -97,7 +128,6 @@ export default function InventoryLog(props?: {
       } finally {
         if (isMounted) {
           setLoading(false);
-          setRefreshing(false);
         }
       }
     };
@@ -125,17 +155,35 @@ export default function InventoryLog(props?: {
       return;
     }
 
+    if (entries === lastSyncedEntriesRef.current) {
+      return;
+    }
+
+    const pendingEntries = entries;
+    const previousEntries = lastSyncedEntriesRef.current;
     const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          setSaving(true);
-          await saveBunnerCurrentEntries(normalizeBunnerEntries(entries));
-        } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "Failed to save inventory changes.");
-        } finally {
-          setSaving(false);
+      void runBackgroundSync(
+        () => saveBunnerCurrentEntries(normalizeBunnerEntries(pendingEntries)),
+        {
+          errorMessage: "Could not save inventory changes. The failed edit was reverted.",
+          onError: (saveError) => {
+            setError(
+              saveError instanceof Error
+                ? saveError.message
+                : "Failed to save inventory changes."
+            );
+            if (latestEntriesRef.current === pendingEntries) {
+              setEntries(previousEntries);
+            }
+          },
         }
-      })();
+      )
+        .then(() => {
+          if (latestEntriesRef.current === pendingEntries) {
+            lastSyncedEntriesRef.current = pendingEntries;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -146,17 +194,32 @@ export default function InventoryLog(props?: {
       return;
     }
 
+    if (snapshots === lastSyncedSnapshotsRef.current) {
+      return;
+    }
+
+    const pendingSnapshots = snapshots;
+    const previousSnapshots = lastSyncedSnapshotsRef.current;
     const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          setSaving(true);
-          await saveBunnerSnapshots(snapshots);
-        } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "Failed to save snapshot archive.");
-        } finally {
-          setSaving(false);
-        }
-      })();
+      void runBackgroundSync(() => saveBunnerSnapshots(pendingSnapshots), {
+        errorMessage: "Could not save the snapshot archive. The failed change was reverted.",
+        onError: (saveError) => {
+          setError(
+            saveError instanceof Error
+              ? saveError.message
+              : "Failed to save snapshot archive."
+          );
+          if (latestSnapshotsRef.current === pendingSnapshots) {
+            setSnapshots(previousSnapshots);
+          }
+        },
+      })
+        .then(() => {
+          if (latestSnapshotsRef.current === pendingSnapshots) {
+            lastSyncedSnapshotsRef.current = pendingSnapshots;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -224,62 +287,38 @@ export default function InventoryLog(props?: {
   };
 
   const handleDeleteSnapshot = async (snapshotId: string) => {
+    const previousSnapshots = latestSnapshotsRef.current;
+    setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+    if (selectedSource === snapshotId) {
+      setSelectedSource("current");
+    }
+
     try {
-      await deleteInventorySnapshot("bunner", snapshotId);
-      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
-      if (selectedSource === snapshotId) {
-        setSelectedSource("current");
-      }
+      await runBackgroundSync(() => deleteInventorySnapshot("bunner", snapshotId), {
+        errorMessage: "Could not delete the snapshot. The failed change was reverted.",
+      });
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
+      setSnapshots(previousSnapshots);
+      if (selectedSource === "current") {
+        setSelectedSource(snapshotId);
+      }
     }
   };
-
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-slate-500">Loading inventory...</CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <p className="text-red-600">{error}</p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setHydrated(false);
-              setLoading(true);
-              setError(null);
-              void (async () => {
-                try {
-                  const state = await fetchBunnerInventoryState();
-                  setEntries(state.entries);
-                  setSnapshots(state.snapshots);
-                  setHydrated(true);
-                } catch (retryError) {
-                  setError(
-                    retryError instanceof Error ? retryError.message : "Failed to reload inventory."
-                  );
-                } finally {
-                  setLoading(false);
-                }
-              })();
-            }}
-          >
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="overflow-auto">
       <CardContent>
+        {error && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        {loading && (
+          <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            Loading the latest inventory values in the background...
+          </div>
+        )}
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
@@ -295,11 +334,7 @@ export default function InventoryLog(props?: {
               Storage area
             </Button>
           )}
-        {saving && <span className="self-center text-sm text-slate-500">Saving...</span>}
-        {refreshing && !loading && (
-          <span className="self-center text-sm text-slate-500">Refreshing...</span>
-        )}
-      </div>
+        </div>
 
         {viewingSnapshot && activeSnapshot && (
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">

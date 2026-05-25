@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AppSelect } from "@/components/ui/app-select";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
+import { isCachedValueStale } from "@/src/services/clientCache";
+import { runBackgroundSync } from "@/src/services/backgroundSync";
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
 import {
   INVENTORY_DAYS,
@@ -73,6 +75,9 @@ function parseNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const OST_INVENTORY_CACHE_KEY = "inventory:ost:latest";
+const OST_INVENTORY_STALE_AFTER_MS = 30_000;
+
 export default function OstInventoryLog(props?: {
   viewSnapshotId?: string;
   readOnly?: boolean;
@@ -88,21 +93,51 @@ export default function OstInventoryLog(props?: {
   const [dayMeta, setDayMeta] = useState<OstMetaByDay>(cachedState?.dayMeta ?? createEmptyOstMeta);
   const [snapshots, setSnapshots] = useState<OstSnapshot[]>(cachedState?.snapshots ?? []);
   const [loading, setLoading] = useState(!hasCachedState);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
   const [hydrated, setHydrated] = useState(hasCachedState);
+  const latestEntriesRef = useRef(entries);
+  const latestDayMetaRef = useRef(dayMeta);
+  const latestSnapshotsRef = useRef(snapshots);
+  const lastSyncedEntriesRef = useRef(entries);
+  const lastSyncedDayMetaRef = useRef(dayMeta);
+  const lastSyncedSnapshotsRef = useRef(snapshots);
+
+  useEffect(() => {
+    latestEntriesRef.current = entries;
+  }, [entries]);
+
+  useEffect(() => {
+    latestDayMetaRef.current = dayMeta;
+  }, [dayMeta]);
+
+  useEffect(() => {
+    latestSnapshotsRef.current = snapshots;
+  }, [snapshots]);
 
   useEffect(() => {
     let isMounted = true;
+    const shouldRefresh =
+      !hasCachedState || isCachedValueStale(OST_INVENTORY_CACHE_KEY, OST_INVENTORY_STALE_AFTER_MS);
 
     const load = async () => {
+      if (!shouldRefresh) {
+        setLoading(false);
+        setHydrated(true);
+        return;
+      }
+
       try {
         setLoading(!hasCachedState);
-        setRefreshing(hasCachedState);
         setError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const state = await fetchOstInventoryState();
+        const state = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return fetchOstInventoryState();
+          },
+          {
+            errorMessage: "Could not refresh cheese inventory. Showing the last saved values.",
+          }
+        );
         if (!isMounted) {
           return;
         }
@@ -111,6 +146,9 @@ export default function OstInventoryLog(props?: {
         setDayMeta(state.dayMeta);
         setSnapshots(state.snapshots);
         setHydrated(true);
+        lastSyncedEntriesRef.current = state.entries;
+        lastSyncedDayMetaRef.current = state.dayMeta;
+        lastSyncedSnapshotsRef.current = state.snapshots;
       } catch (loadError) {
         if (isMounted) {
           setError(loadError instanceof Error ? loadError.message : "Failed to load ost inventory.");
@@ -118,7 +156,6 @@ export default function OstInventoryLog(props?: {
       } finally {
         if (isMounted) {
           setLoading(false);
-          setRefreshing(false);
         }
       }
     };
@@ -146,17 +183,46 @@ export default function OstInventoryLog(props?: {
       return;
     }
 
+    if (
+      entries === lastSyncedEntriesRef.current &&
+      dayMeta === lastSyncedDayMetaRef.current
+    ) {
+      return;
+    }
+
+    const pendingEntries = entries;
+    const pendingDayMeta = dayMeta;
+    const previousEntries = lastSyncedEntriesRef.current;
+    const previousDayMeta = lastSyncedDayMetaRef.current;
     const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          setSaving(true);
-          await saveOstCurrentState(normalizeOstEntries(entries), normalizeOstMeta(dayMeta));
-        } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "Failed to save ost inventory.");
-        } finally {
-          setSaving(false);
+      void runBackgroundSync(
+        () => saveOstCurrentState(normalizeOstEntries(pendingEntries), normalizeOstMeta(pendingDayMeta)),
+        {
+          errorMessage: "Could not save cheese inventory changes. The failed edit was reverted.",
+          onError: (saveError) => {
+            setError(
+              saveError instanceof Error ? saveError.message : "Failed to save ost inventory."
+            );
+            if (
+              latestEntriesRef.current === pendingEntries &&
+              latestDayMetaRef.current === pendingDayMeta
+            ) {
+              setEntries(previousEntries);
+              setDayMeta(previousDayMeta);
+            }
+          },
         }
-      })();
+      )
+        .then(() => {
+          if (
+            latestEntriesRef.current === pendingEntries &&
+            latestDayMetaRef.current === pendingDayMeta
+          ) {
+            lastSyncedEntriesRef.current = pendingEntries;
+            lastSyncedDayMetaRef.current = pendingDayMeta;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -167,17 +233,30 @@ export default function OstInventoryLog(props?: {
       return;
     }
 
+    if (snapshots === lastSyncedSnapshotsRef.current) {
+      return;
+    }
+
+    const pendingSnapshots = snapshots;
+    const previousSnapshots = lastSyncedSnapshotsRef.current;
     const timeout = window.setTimeout(() => {
-      void (async () => {
-        try {
-          setSaving(true);
-          await saveOstSnapshots(snapshots);
-        } catch (saveError) {
-          setError(saveError instanceof Error ? saveError.message : "Failed to save ost snapshots.");
-        } finally {
-          setSaving(false);
-        }
-      })();
+      void runBackgroundSync(() => saveOstSnapshots(pendingSnapshots), {
+        errorMessage: "Could not save cheese inventory snapshots. The failed change was reverted.",
+        onError: (saveError) => {
+          setError(
+            saveError instanceof Error ? saveError.message : "Failed to save ost snapshots."
+          );
+          if (latestSnapshotsRef.current === pendingSnapshots) {
+            setSnapshots(previousSnapshots);
+          }
+        },
+      })
+        .then(() => {
+          if (latestSnapshotsRef.current === pendingSnapshots) {
+            lastSyncedSnapshotsRef.current = pendingSnapshots;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -254,63 +333,38 @@ export default function OstInventoryLog(props?: {
   };
 
   const handleDeleteSnapshot = async (snapshotId: string) => {
+    const previousSnapshots = latestSnapshotsRef.current;
+    setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+    if (selectedSource === snapshotId) {
+      setSelectedSource("current");
+    }
+
     try {
-      await deleteInventorySnapshot("ost", snapshotId);
-      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
-      if (selectedSource === snapshotId) {
-        setSelectedSource("current");
-      }
+      await runBackgroundSync(() => deleteInventorySnapshot("ost", snapshotId), {
+        errorMessage: "Could not delete the snapshot. The failed change was reverted.",
+      });
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
+      setSnapshots(previousSnapshots);
+      if (selectedSource === "current") {
+        setSelectedSource(snapshotId);
+      }
     }
   };
-
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="p-6 text-slate-500">Loading ost inventory...</CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <p className="text-red-600">{error}</p>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setHydrated(false);
-              setLoading(true);
-              setError(null);
-              void (async () => {
-                try {
-                  const state = await fetchOstInventoryState();
-                  setEntries(state.entries);
-                  setDayMeta(state.dayMeta);
-                  setSnapshots(state.snapshots);
-                  setHydrated(true);
-                } catch (retryError) {
-                  setError(
-                    retryError instanceof Error ? retryError.message : "Failed to reload ost inventory."
-                  );
-                } finally {
-                  setLoading(false);
-                }
-              })();
-            }}
-          >
-            Retry
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <Card className="mx-auto w-full max-w-6xl overflow-auto">
       <CardContent className="px-10 py-8">
+        {error && (
+          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        {loading && (
+          <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+            Loading the latest cheese inventory values in the background...
+          </div>
+        )}
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
@@ -326,11 +380,7 @@ export default function OstInventoryLog(props?: {
               Storage area
             </Button>
           )}
-        {saving && <span className="self-center text-sm text-slate-500">Saving...</span>}
-        {refreshing && !loading && (
-          <span className="self-center text-sm text-slate-500">Refreshing...</span>
-        )}
-      </div>
+        </div>
 
         {viewingSnapshot && activeSnapshot && (
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">

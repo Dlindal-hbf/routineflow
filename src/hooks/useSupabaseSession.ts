@@ -13,10 +13,20 @@ type SupabaseSessionState = {
   error: string | null;
   session: Session | null;
   user: User | null;
+  isConfigError: boolean;
 };
 
-let cachedSupabaseSessionState: SupabaseSessionState | null = null;
+const listeners = new Set<(state: SupabaseSessionState) => void>();
+
+let cachedSupabaseSessionState: SupabaseSessionState = {
+  loading: true,
+  error: null,
+  session: null,
+  user: null,
+  isConfigError: false,
+};
 let bootstrapPromise: Promise<SupabaseSessionState> | null = null;
+let authSubscriptionInitialized = false;
 
 function formatSupabaseAuthError(context: string, error: unknown): string {
   if (!(error instanceof Error)) {
@@ -44,34 +54,80 @@ function formatSupabaseAuthError(context: string, error: unknown): string {
   return `${context} failed. ${JSON.stringify(details)}.${reason}`;
 }
 
-export function useSupabaseSession(): SupabaseSessionState {
+function emitSupabaseSessionState() {
+  for (const listener of listeners) {
+    listener(cachedSupabaseSessionState);
+  }
+}
+
+function updateSupabaseSessionState(nextState: SupabaseSessionState) {
+  cachedSupabaseSessionState = nextState;
+  emitSupabaseSessionState();
+}
+
+function subscribeToSupabaseSessionState(
+  listener: (state: SupabaseSessionState) => void
+): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+function getBootstrapErrorState(configError: string): SupabaseSessionState {
+  return {
+    loading: false,
+    error: configError,
+    session: null,
+    user: null,
+    isConfigError: true,
+  };
+}
+
+function ensureAuthSubscription() {
+  if (authSubscriptionInitialized || getSupabaseConfigError()) {
+    return;
+  }
+
+  authSubscriptionInitialized = true;
+  const supabase = getSupabaseClient();
+  supabase.auth.onAuthStateChange((_event, nextSession) => {
+    updateSupabaseSessionState({
+      loading: false,
+      error: null,
+      session: nextSession,
+      user: nextSession?.user ?? null,
+      isConfigError: false,
+    });
+  });
+}
+
+export function getSupabaseSessionState(): SupabaseSessionState {
   const configError = getSupabaseConfigError();
-  const [session, setSession] = useState<Session | null>(
-    cachedSupabaseSessionState?.session ?? null
-  );
-  const [loading, setLoading] = useState(
-    configError ? false : (cachedSupabaseSessionState?.loading ?? true)
-  );
-  const [error, setError] = useState<string | null>(
-    configError ?? cachedSupabaseSessionState?.error ?? null
-  );
+  if (configError) {
+    return getBootstrapErrorState(configError);
+  }
 
-  useEffect(() => {
-    if (configError) {
-      cachedSupabaseSessionState = {
-        loading: false,
-        error: configError,
-        session: null,
-        user: null,
-      };
-      return;
-    }
+  return cachedSupabaseSessionState;
+}
 
+export async function ensureSupabaseSessionState(): Promise<SupabaseSessionState> {
+  const configError = getSupabaseConfigError();
+  if (configError) {
+    const errorState = getBootstrapErrorState(configError);
+    updateSupabaseSessionState(errorState);
+    return errorState;
+  }
+
+  ensureAuthSubscription();
+  if (cachedSupabaseSessionState.user || cachedSupabaseSessionState.session) {
+    return cachedSupabaseSessionState;
+  }
+
+  if (!bootstrapPromise) {
     logSupabaseClientConfig();
     const supabase = getSupabaseClient();
-    let isMounted = true;
-
-    const bootstrap = async (): Promise<SupabaseSessionState> => {
+    bootstrapPromise = (async (): Promise<SupabaseSessionState> => {
       const {
         data: { session: existingSession },
         error: sessionError,
@@ -79,88 +135,68 @@ export function useSupabaseSession(): SupabaseSessionState {
 
       if (sessionError) {
         console.error("[supabase] getSession error", sessionError);
-        return {
+        const nextState = {
           loading: false,
           error: formatSupabaseAuthError("Supabase getSession", sessionError),
           session: null,
           user: null,
-        };
+          isConfigError: false,
+        } satisfies SupabaseSessionState;
+        updateSupabaseSessionState(nextState);
+        return nextState;
       }
 
       if (existingSession) {
-        return {
+        const nextState = {
           loading: false,
           error: null,
           session: existingSession,
           user: existingSession.user ?? null,
-        };
+          isConfigError: false,
+        } satisfies SupabaseSessionState;
+        updateSupabaseSessionState(nextState);
+        return nextState;
       }
 
       const { data, error: signInError } = await supabase.auth.signInAnonymously();
       if (signInError) {
         console.error("[supabase] signInAnonymously error", signInError);
-        return {
+        const nextState = {
           loading: false,
           error: formatSupabaseAuthError("Supabase anonymous sign-in", signInError),
           session: null,
           user: null,
-        };
+          isConfigError: false,
+        } satisfies SupabaseSessionState;
+        updateSupabaseSessionState(nextState);
+        return nextState;
       }
 
-      return {
+      const nextState = {
         loading: false,
         error: null,
         session: data.session ?? null,
         user: data.session?.user ?? null,
-      };
-    };
-
-    if (!bootstrapPromise) {
-      bootstrapPromise = bootstrap().finally(() => {
-        bootstrapPromise = null;
-      });
-    }
-
-    void bootstrapPromise.then((nextState) => {
-      cachedSupabaseSessionState = nextState;
-      if (!isMounted) {
-        return;
-      }
-
-      setSession(nextState.session);
-      setError(nextState.error);
-      setLoading(nextState.loading);
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      const nextState = {
-        loading: false,
-        error: null,
-        session: nextSession,
-        user: nextSession?.user ?? null,
+        isConfigError: false,
       } satisfies SupabaseSessionState;
-      cachedSupabaseSessionState = nextState;
-      if (!isMounted) {
-        return;
-      }
-
-      setSession(nextState.session);
-      setError(nextState.error);
-      setLoading(nextState.loading);
+      updateSupabaseSessionState(nextState);
+      return nextState;
+    })().finally(() => {
+      bootstrapPromise = null;
     });
+  }
 
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, [configError]);
+  return bootstrapPromise;
+}
 
-  return {
-    loading,
-    error,
-    session,
-    user: session?.user ?? null,
-  };
+export function useSupabaseSession(): SupabaseSessionState {
+  const [state, setState] = useState<SupabaseSessionState>(() => getSupabaseSessionState());
+
+  useEffect(() => {
+    const unsubscribe = subscribeToSupabaseSessionState(setState);
+    void ensureSupabaseSessionState().then(setState);
+    return unsubscribe;
+  }, []);
+
+  return state;
 }

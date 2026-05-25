@@ -7,14 +7,18 @@ import HistoryDateBrowser from "@/components/history/HistoryDateBrowser";
 import HistoryEntryCard from "@/components/history/HistoryEntryCard";
 import { formatTimestamp, getDateKeyFromTimestamp, getTodayDateKey } from "@/lib/date-utils";
 import type { DateKey } from "@/types/calendar";
+import { isCachedValueStale } from "@/src/services/clientCache";
+import { runBackgroundSync } from "@/src/services/backgroundSync";
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
 import {
   deleteInventorySnapshot,
   fetchBunnerInventoryState,
+  fetchOstInventoryState,
   getCachedBunnerInventoryState,
   getCachedOstInventoryState,
-  fetchOstInventoryState,
 } from "@/src/services/inventoryService";
+
+const SNAPSHOT_STALE_AFTER_MS = 30_000;
 
 type SnapshotArchiveEntry = {
   id: string;
@@ -54,6 +58,8 @@ export default function SnapshotArchiveView({
   emptyDescription = "Save a snapshot from the live module to build an archive.",
 }: SnapshotArchiveViewProps) {
   const inventoryType = resolveInventoryType(storageKey);
+  const cacheKey =
+    inventoryType === "ost" ? "inventory:ost:latest" : "inventory:bunner:latest";
   const cachedState =
     inventoryType === "ost" ? getCachedOstInventoryState() : getCachedBunnerInventoryState();
   const hasCachedState = cachedState !== undefined;
@@ -68,36 +74,48 @@ export default function SnapshotArchiveView({
     }))
   );
   const [loading, setLoading] = useState(!hasCachedState);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+    const shouldRefresh =
+      !hasCachedState || isCachedValueStale(cacheKey, SNAPSHOT_STALE_AFTER_MS);
 
     const load = async () => {
+      if (!shouldRefresh) {
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(!hasCachedState);
-        setRefreshing(hasCachedState);
         setError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const state =
-          inventoryType === "ost"
-            ? await fetchOstInventoryState()
-            : await fetchBunnerInventoryState();
+        const state = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return inventoryType === "ost"
+              ? fetchOstInventoryState()
+              : fetchBunnerInventoryState();
+          },
+          {
+            errorMessage: "Could not refresh snapshots. Showing the last saved archive.",
+          }
+        );
 
         if (!isMounted) {
           return;
         }
 
-        const nextSnapshots = state.snapshots.map((snapshot) => ({
-          id: snapshot.id,
-          name: snapshot.name,
-          createdAt: snapshot.createdAt,
-          dayKey:
-            getDateKeyFromTimestamp(snapshot.createdAt, { timeZone: "Europe/Oslo" }) ??
-            getTodayDateKey("Europe/Oslo"),
-        }));
-        setSnapshots(nextSnapshots);
+        setSnapshots(
+          state.snapshots.map((snapshot) => ({
+            id: snapshot.id,
+            name: snapshot.name,
+            createdAt: snapshot.createdAt,
+            dayKey:
+              getDateKeyFromTimestamp(snapshot.createdAt, { timeZone: "Europe/Oslo" }) ??
+              getTodayDateKey("Europe/Oslo"),
+          }))
+        );
       } catch (loadError) {
         if (isMounted) {
           setError(
@@ -107,7 +125,6 @@ export default function SnapshotArchiveView({
       } finally {
         if (isMounted) {
           setLoading(false);
-          setRefreshing(false);
         }
       }
     };
@@ -117,7 +134,7 @@ export default function SnapshotArchiveView({
     return () => {
       isMounted = false;
     };
-  }, [hasCachedState, inventoryType]);
+  }, [cacheKey, hasCachedState, inventoryType]);
 
   const groupedSnapshots = useMemo(() => groupItemsByDayKey(snapshots), [snapshots]);
   const days = useMemo(
@@ -145,20 +162,26 @@ export default function SnapshotArchiveView({
                           return;
                         }
 
-                        void (async () => {
-                          try {
-                            await deleteInventorySnapshot(inventoryType, snapshot.id);
-                            setSnapshots((current) =>
-                              current.filter((entry) => entry.id !== snapshot.id)
-                            );
-                          } catch (deleteError) {
-                            setError(
-                              deleteError instanceof Error
-                                ? deleteError.message
-                                : "Failed to delete snapshot."
-                            );
+                        const previousSnapshots = snapshots;
+                        setSnapshots((current) =>
+                          current.filter((entry) => entry.id !== snapshot.id)
+                        );
+
+                        void runBackgroundSync(
+                          () => deleteInventorySnapshot(inventoryType, snapshot.id),
+                          {
+                            errorMessage:
+                              "Could not delete the snapshot. The failed change was reverted.",
+                            onError: (deleteError) => {
+                              setError(
+                                deleteError instanceof Error
+                                  ? deleteError.message
+                                  : "Failed to delete snapshot."
+                              );
+                              setSnapshots(previousSnapshots);
+                            },
                           }
-                        })();
+                        ).catch(() => undefined);
                       }}
                     >
                       Delete
@@ -170,34 +193,19 @@ export default function SnapshotArchiveView({
           </div>
         ),
       })),
-    [groupedSnapshots, inventoryType, onOpen]
+    [groupedSnapshots, inventoryType, onOpen, snapshots]
   );
 
-  if (loading) {
-    return (
-      <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-slate-500 shadow-sm">
-        <LoaderCircle className="h-5 w-5 animate-spin text-primary" />
-        <span>Loading snapshots…</span>
-      </div>
-    );
-  }
-
   if (error) {
-    return (
-      <div className="space-y-4 p-4">
-        <p className="text-red-600">{error}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          Retry
-        </Button>
-      </div>
-    );
+    return <div className="p-4 text-red-600">{error}</div>;
   }
 
   return (
     <div className="space-y-4">
-      {refreshing && !loading && (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-          Refreshing snapshots...
+      {loading && (
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 shadow-sm">
+          <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+          <span>Refreshing snapshots in the background...</span>
         </div>
       )}
       <HistoryDateBrowser

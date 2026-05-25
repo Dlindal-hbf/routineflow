@@ -14,8 +14,13 @@ import {
 } from "@/lib/date-utils";
 import type { TaskCalendarStatus } from "@/lib/history-types";
 import type { DateKey } from "@/types/calendar";
+import { isCachedValueStale } from "@/src/services/clientCache";
+import { runBackgroundSync } from "@/src/services/backgroundSync";
 import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
 import { fetchTaskStorageBundle, getCachedTaskStorageBundle } from "@/src/services/taskService";
+
+const TASK_HISTORY_CACHE_KEY = "task-storage-bundle:latest";
+const TASK_HISTORY_STALE_AFTER_MS = 30_000;
 
 type TaskHistoryView = {
   taskId: string;
@@ -77,19 +82,32 @@ export default function TaskListHistory({ listId }: Props) {
     cachedBundle ? buildTaskHistories(listId, cachedBundle) : []
   );
   const [loading, setLoading] = useState(!hasCachedBundle);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
+    const shouldRefresh =
+      !hasCachedBundle || isCachedValueStale(TASK_HISTORY_CACHE_KEY, TASK_HISTORY_STALE_AFTER_MS);
 
     const load = async () => {
+      if (!shouldRefresh) {
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(!hasCachedBundle);
-        setRefreshing(hasCachedBundle);
         setError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const bundle = await fetchTaskStorageBundle();
+        const bundle = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return fetchTaskStorageBundle();
+          },
+          {
+            errorMessage: "Could not refresh task history. Showing the last saved data.",
+          }
+        );
+
         if (!isMounted) {
           return;
         }
@@ -102,7 +120,6 @@ export default function TaskListHistory({ listId }: Props) {
       } finally {
         if (isMounted) {
           setLoading(false);
-          setRefreshing(false);
         }
       }
     };
@@ -116,22 +133,11 @@ export default function TaskListHistory({ listId }: Props) {
 
   const sortedTaskHistories = useMemo(() => taskHistories, [taskHistories]);
 
-  if (loading) {
-    return (
-      <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-        <CardContent className="flex items-center gap-3 p-6 text-slate-500">
-          <LoaderCircle className="h-5 w-5 animate-spin text-primary" />
-          <span>Loading task history…</span>
-        </CardContent>
-      </Card>
-    );
-  }
-
   if (error) {
     return <div className="p-4 text-red-600">{error}</div>;
   }
 
-  if (sortedTaskHistories.length === 0) {
+  if (sortedTaskHistories.length === 0 && !loading) {
     return (
       <HistoryEmptyState
         title="No history recorded yet."
@@ -142,10 +148,13 @@ export default function TaskListHistory({ listId }: Props) {
 
   return (
     <div className="space-y-6">
-      {refreshing && !loading && (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
-          Refreshing task history...
-        </div>
+      {loading && (
+        <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
+          <CardContent className="flex items-center gap-3 p-4 text-sm text-slate-500">
+            <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+            <span>Loading the latest task history in the background...</span>
+          </CardContent>
+        </Card>
       )}
       {sortedTaskHistories.map((taskHistory) => (
         <motion.div

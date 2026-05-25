@@ -27,6 +27,7 @@ import HistoryPageShell from "@/components/history/HistoryPageShell";
 import SnapshotArchiveView from "@/components/history/SnapshotArchiveView";
 import PageHeader from "@/components/ui/PageHeader";
 import BrandedHeader from "@/components/BrandedHeader";
+import BackgroundSyncStatus from "@/components/BackgroundSyncStatus";
 import { Textarea } from "@/components/ui/textarea";
 
 import { motion } from "framer-motion";
@@ -73,8 +74,16 @@ import {
 } from "@/src/services/routineChecklistService";
 import {
   fetchWorkLogEntries,
+  getCachedWorkLogEntries,
   saveWorkLogEntries,
 } from "@/src/services/workLogService";
+import { getCachedActivityHistoryEntries } from "@/src/services/activityService";
+import {
+  fetchBunnerInventoryState,
+  fetchOstInventoryState,
+} from "@/src/services/inventoryService";
+import { fetchCustomerInteractions } from "@/src/services/customerInteractionService";
+import { pushBackgroundSyncError, runBackgroundSync } from "@/src/services/backgroundSync";
 
 type View =
   | "overview"
@@ -347,13 +356,9 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [inventorySubView, setInventorySubView] = useState<"main" | "bunner" | "ost">("main");
   const [inventoryArchiveType, setInventoryArchiveType] = useState<"bunner" | "ost">("bunner");
-  const { loading: sessionLoading, error: sessionError, user: supabaseUser } =
+  const { error: sessionError, user: supabaseUser, isConfigError } =
     useSupabaseSession();
-  const [businessLoading, setBusinessLoading] = useState(true);
-  const [businessRefreshing, setBusinessRefreshing] = useState(false);
   const [businessPersistenceReady, setBusinessPersistenceReady] = useState(false);
-  const [showBusinessRefreshIndicator, setShowBusinessRefreshIndicator] = useState(false);
-  const [businessError, setBusinessError] = useState<string | null>(null);
 
   const [workLog, setWorkLog] = useState<WorkLogEntry[]>(initialWorkLog);
 
@@ -437,6 +442,14 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [hasLoadedTaskLists, setHasLoadedTaskLists] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const skipNextTaskListSaveRef = useRef(false);
+  const latestWorkLogRef = useRef(workLog);
+  const latestHistoryRef = useRef(history);
+  const latestTaskListsRef = useRef(taskLists);
+  const latestRoutineTasksRef = useRef(routineTasks);
+  const lastSyncedWorkLogRef = useRef<WorkLogEntry[]>([]);
+  const lastSyncedHistoryRef = useRef<ActivityHistoryEntry[]>([]);
+  const lastSyncedTaskListsRef = useRef<TaskList[]>([]);
+  const lastSyncedRoutineTasksRef = useRef<Task[]>([]);
 
   const ensureMetadata = (
     value: RecordMetadata | undefined,
@@ -483,17 +496,26 @@ export default function WorkplaceRoutinesDemoStyle() {
   };
 
   useEffect(() => {
-    if (!businessRefreshing) {
-      setShowBusinessRefreshIndicator(false);
-      return;
+    latestWorkLogRef.current = workLog;
+  }, [workLog]);
+
+  useEffect(() => {
+    latestHistoryRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    latestTaskListsRef.current = taskLists;
+  }, [taskLists]);
+
+  useEffect(() => {
+    latestRoutineTasksRef.current = routineTasks;
+  }, [routineTasks]);
+
+  useEffect(() => {
+    if (sessionError && !isConfigError) {
+      pushBackgroundSyncError(sessionError);
     }
-
-    const timeout = window.setTimeout(() => {
-      setShowBusinessRefreshIndicator(true);
-    }, 180);
-
-    return () => window.clearTimeout(timeout);
-  }, [businessRefreshing]);
+  }, [isConfigError, sessionError]);
 
   useEffect(() => {
     if (!supabaseUser) {
@@ -502,6 +524,8 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     let isMounted = true;
     const cachedBusinessData = readBusinessDataCache(supabaseUser.id);
+    const cachedWorkLogEntries = getCachedWorkLogEntries();
+    const cachedHistoryEntries = getCachedActivityHistoryEntries();
 
     setBusinessPersistenceReady(false);
 
@@ -512,21 +536,38 @@ export default function WorkplaceRoutinesDemoStyle() {
       setHasLoadedWorkLog(true);
       setHasLoadedHistory(true);
       setHasLoadedTaskLists(true);
-      setBusinessLoading(false);
+      lastSyncedWorkLogRef.current = cachedBusinessData.workLog;
+      lastSyncedHistoryRef.current = cachedBusinessData.history;
+      lastSyncedTaskListsRef.current = cachedBusinessData.taskLists;
     } else {
-      setBusinessLoading(true);
+      if (cachedWorkLogEntries) {
+        setWorkLog(cachedWorkLogEntries);
+        setHasLoadedWorkLog(true);
+        lastSyncedWorkLogRef.current = cachedWorkLogEntries;
+      }
+
+      if (cachedHistoryEntries) {
+        setHistory(cachedHistoryEntries);
+        setHasLoadedHistory(true);
+        lastSyncedHistoryRef.current = cachedHistoryEntries;
+      }
     }
 
     const loadBusinessData = async () => {
       try {
-        setBusinessRefreshing(Boolean(cachedBusinessData));
-        setBusinessError(null);
-        await ensureLegacyBusinessDataMigrated();
-        const [loadedWorkLog, loadedHistory, loadedTaskLists] = await Promise.all([
-          fetchWorkLogEntries(),
-          fetchActivityHistoryEntries(),
-          loadTaskListsFromStoreEvent(),
-        ]);
+        const [loadedWorkLog, loadedHistory, loadedTaskLists] = await runBackgroundSync(
+          async () => {
+            await ensureLegacyBusinessDataMigrated();
+            return Promise.all([
+              fetchWorkLogEntries(),
+              fetchActivityHistoryEntries(),
+              loadTaskListsFromStoreEvent(),
+            ]);
+          },
+          {
+            errorMessage: "Could not refresh business data. Showing your last saved content.",
+          }
+        );
 
         if (!isMounted) {
           return;
@@ -539,6 +580,9 @@ export default function WorkplaceRoutinesDemoStyle() {
         setHasLoadedHistory(true);
         setHasLoadedTaskLists(true);
         setBusinessPersistenceReady(true);
+        lastSyncedWorkLogRef.current = loadedWorkLog;
+        lastSyncedHistoryRef.current = loadedHistory;
+        lastSyncedTaskListsRef.current = loadedTaskLists;
         writeBusinessDataCache(supabaseUser.id, {
           workLog: loadedWorkLog,
           history: loadedHistory,
@@ -546,15 +590,16 @@ export default function WorkplaceRoutinesDemoStyle() {
           cachedAt: new Date().toISOString(),
         });
       } catch (loadError) {
-        if (isMounted) {
-          setBusinessError(
-            loadError instanceof Error ? loadError.message : "Failed to load business data."
+        if (isMounted && !cachedBusinessData) {
+          pushBackgroundSyncError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Could not load business data from Supabase."
           );
         }
       } finally {
         if (isMounted) {
-          setBusinessLoading(false);
-          setBusinessRefreshing(false);
+          setBusinessPersistenceReady(true);
         }
       }
     };
@@ -588,35 +633,64 @@ export default function WorkplaceRoutinesDemoStyle() {
   ]);
 
   useEffect(() => {
+    if (!supabaseUser || !businessPersistenceReady) {
+      return;
+    }
+
+    void runBackgroundSync(
+      async () => {
+        await Promise.allSettled([
+          fetchCustomerInteractions(),
+          fetchBunnerInventoryState(),
+          fetchOstInventoryState(),
+        ]);
+      },
+      {
+        errorMessage: "Could not warm up background data from Supabase.",
+        suppressErrorToast: true,
+      }
+    ).catch(() => undefined);
+  }, [businessPersistenceReady, supabaseUser]);
+
+  useEffect(() => {
     if (view !== "routine-detail" || !supabaseUser) {
       return;
     }
 
     let isMounted = true;
+    const routine = routines.find((entry) => entry.id === selectedRoutineId);
+    if (!routine) {
+      return;
+    }
+
+    if (!hasLoadedRoutineTasks) {
+      setRoutineTasks(routine.tasks);
+    }
 
     const loadRoutineTasks = async () => {
       try {
-        const routine = routines.find((entry) => entry.id === selectedRoutineId);
-        if (!routine) {
-          return;
-        }
-
-        const loadedTasks = await fetchRoutineChecklistTasks(
-          selectedRoutineId,
-          routine.title,
-          routine.tasks
+        const loadedTasks = await runBackgroundSync(
+          () =>
+            fetchRoutineChecklistTasks(selectedRoutineId, routine.title, routine.tasks),
+          {
+            errorMessage: "Could not refresh the routine checklist. Showing the last known tasks.",
+          }
         );
 
         if (isMounted) {
           setRoutineTasks(loadedTasks);
           setHasLoadedRoutineTasks(true);
+          lastSyncedRoutineTasksRef.current = loadedTasks;
         }
       } catch (loadError) {
         if (isMounted) {
-          setBusinessError(
-            loadError instanceof Error ? loadError.message : "Failed to load routine checklist."
+          pushBackgroundSyncError(
+            loadError instanceof Error
+              ? loadError.message
+              : "Failed to load the routine checklist."
           );
-          setRoutineTasks(routines.find((entry) => entry.id === selectedRoutineId)?.tasks ?? []);
+          setRoutineTasks(routine.tasks);
+          lastSyncedRoutineTasksRef.current = routine.tasks;
         }
       }
     };
@@ -626,10 +700,14 @@ export default function WorkplaceRoutinesDemoStyle() {
     return () => {
       isMounted = false;
     };
-  }, [routines, selectedRoutineId, supabaseUser, view]);
+  }, [hasLoadedRoutineTasks, routines, selectedRoutineId, supabaseUser, view]);
 
   useEffect(() => {
     if (!hasLoadedRoutineTasks || !supabaseUser) {
+      return;
+    }
+
+    if (routineTasks === lastSyncedRoutineTasksRef.current) {
       return;
     }
 
@@ -638,14 +716,26 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
+    const pendingTasks = routineTasks;
+    const previousTasks = lastSyncedRoutineTasksRef.current;
     const timeout = window.setTimeout(() => {
-      void saveRoutineChecklistTasks(selectedRoutineId, routine.title, routineTasks).catch(
-        (saveError) => {
-          setBusinessError(
-            saveError instanceof Error ? saveError.message : "Failed to save routine tasks."
-          );
+      void runBackgroundSync(
+        () => saveRoutineChecklistTasks(selectedRoutineId, routine.title, pendingTasks),
+        {
+          errorMessage: "Could not save the routine checklist. The last failed change was reverted.",
+          onError: () => {
+            if (latestRoutineTasksRef.current === pendingTasks) {
+              setRoutineTasks(previousTasks);
+            }
+          },
         }
-      );
+      )
+        .then(() => {
+          if (latestRoutineTasksRef.current === pendingTasks) {
+            lastSyncedRoutineTasksRef.current = pendingTasks;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -656,12 +746,27 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
+    if (workLog === lastSyncedWorkLogRef.current) {
+      return;
+    }
+
+    const pendingWorkLog = workLog;
+    const previousWorkLog = lastSyncedWorkLogRef.current;
     const timeout = window.setTimeout(() => {
-      void saveWorkLogEntries(workLog).catch((saveError) => {
-        setBusinessError(
-          saveError instanceof Error ? saveError.message : "Failed to save work log."
-        );
-      });
+      void runBackgroundSync(() => saveWorkLogEntries(pendingWorkLog), {
+        errorMessage: "Could not save the work log. The last failed change was reverted.",
+        onError: () => {
+          if (latestWorkLogRef.current === pendingWorkLog) {
+            setWorkLog(previousWorkLog);
+          }
+        },
+      })
+        .then(() => {
+          if (latestWorkLogRef.current === pendingWorkLog) {
+            lastSyncedWorkLogRef.current = pendingWorkLog;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -672,12 +777,28 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
+    if (history === lastSyncedHistoryRef.current) {
+      return;
+    }
+
+    const pendingHistory = history;
+    const previousHistory = lastSyncedHistoryRef.current;
     const timeout = window.setTimeout(() => {
-      void saveActivityHistoryEntries(history).catch((saveError) => {
-        setBusinessError(
-          saveError instanceof Error ? saveError.message : "Failed to save activity history."
-        );
-      });
+      void runBackgroundSync(() => saveActivityHistoryEntries(pendingHistory), {
+        errorMessage:
+          "Could not save activity history. The last failed change was reverted.",
+        onError: () => {
+          if (latestHistoryRef.current === pendingHistory) {
+            setHistory(previousHistory);
+          }
+        },
+      })
+        .then(() => {
+          if (latestHistoryRef.current === pendingHistory) {
+            lastSyncedHistoryRef.current = pendingHistory;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -693,12 +814,27 @@ export default function WorkplaceRoutinesDemoStyle() {
       return;
     }
 
+    if (taskLists === lastSyncedTaskListsRef.current) {
+      return;
+    }
+
+    const pendingTaskLists = taskLists;
+    const previousTaskLists = lastSyncedTaskListsRef.current;
     const timeout = window.setTimeout(() => {
-      void saveTaskListRecords(taskLists).catch((saveError) => {
-        setBusinessError(
-          saveError instanceof Error ? saveError.message : "Failed to save task lists."
-        );
-      });
+      void runBackgroundSync(() => saveTaskListRecords(pendingTaskLists), {
+        errorMessage: "Could not save the task lists. The last failed change was reverted.",
+        onError: () => {
+          if (latestTaskListsRef.current === pendingTaskLists) {
+            replaceTaskListsFromRemote(previousTaskLists);
+          }
+        },
+      })
+        .then(() => {
+          if (latestTaskListsRef.current === pendingTaskLists) {
+            lastSyncedTaskListsRef.current = pendingTaskLists;
+          }
+        })
+        .catch(() => undefined);
     }, 250);
 
     return () => window.clearTimeout(timeout);
@@ -711,12 +847,18 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     const checkDueResets = async () => {
       try {
-        await processDueResetsInSupabase(new Date());
+        await runBackgroundSync(() => processDueResetsInSupabase(new Date()), {
+          errorMessage: "Could not process scheduled resets in the background.",
+          suppressErrorToast: true,
+        });
         const refreshedLists = await loadTaskListsFromStoreEvent();
         replaceTaskListsFromRemote(refreshedLists);
+        lastSyncedTaskListsRef.current = refreshedLists;
       } catch (resetError) {
-        setBusinessError(
-          resetError instanceof Error ? resetError.message : "Failed to process scheduled resets."
+        pushBackgroundSyncError(
+          resetError instanceof Error
+            ? resetError.message
+            : "Failed to process scheduled resets."
         );
       }
     };
@@ -728,27 +870,6 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     return () => window.clearInterval(interval);
   }, [businessPersistenceReady, supabaseUser]);
-
-  useEffect(() => {
-    if (
-      (view !== "list-detail" && view !== "list-history") ||
-      !supabaseUser ||
-      !businessPersistenceReady
-    ) {
-      return;
-    }
-
-    void (async () => {
-      try {
-        await processDueResetsInSupabase(new Date());
-        replaceTaskListsFromRemote(await loadTaskListsFromStoreEvent());
-      } catch (resetError) {
-        setBusinessError(
-          resetError instanceof Error ? resetError.message : "Failed to refresh task lists."
-        );
-      }
-    })();
-  }, [businessPersistenceReady, selectedListId, supabaseUser, view]);
 
 
   const selectedRoutine =
@@ -1446,22 +1567,11 @@ export default function WorkplaceRoutinesDemoStyle() {
     [workLog]
   );
 
-  const showTaskListLoadingSkeletons = businessLoading && !hasLoadedTaskLists;
-  const showWorkLogLoadingSkeletons = businessLoading && !hasLoadedWorkLog;
-  const showHistoryLoadingSkeleton = businessLoading && !hasLoadedHistory;
+  const showTaskListLoadingSkeletons = !hasLoadedTaskLists && taskLists.length === 0;
+  const showWorkLogLoadingSkeletons = !hasLoadedWorkLog && workLog.length === 0;
+  const showHistoryLoadingSkeleton = !hasLoadedHistory && history.length === 0;
 
-  if (sessionLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-        <div className="text-center">
-          <h1 className="text-3xl font-semibold">Connecting to Supabase</h1>
-          <p className="mt-3 text-lg text-foreground/70">Preparing your secure workspace...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (sessionError) {
+  if (sessionError && isConfigError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
         <div className="max-w-xl rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
@@ -1474,19 +1584,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {businessError && user && (
-        <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700">
-          {businessError}
-        </div>
-      )}
-      {showBusinessRefreshIndicator && user && (
-        <div className="border-b border-slate-200 bg-white/90 px-6 py-3 text-sm text-slate-600 backdrop-blur">
-          <div className="mx-auto flex max-w-7xl items-center gap-3">
-            <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
-            <span>Refreshing business data in the background…</span>
-          </div>
-        </div>
-      )}
+      <BackgroundSyncStatus />
       {!user && (
         <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-foreground">
           <h1 className="mb-4 text-5xl font-bold text-primary">PB INTERNE RUTINER</h1>
