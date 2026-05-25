@@ -135,7 +135,7 @@ export default function OstInventoryLog(props?: {
             return fetchOstInventoryState();
           },
           {
-            errorMessage: "Could not refresh cheese inventory. Showing the last saved values.",
+            errorMessage: "Kunne ikke oppdatere ostelager. Viser sist lagrede verdier.",
           }
         );
         if (!isMounted) {
@@ -151,7 +151,7 @@ export default function OstInventoryLog(props?: {
         lastSyncedSnapshotsRef.current = state.snapshots;
       } catch (loadError) {
         if (isMounted) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load ost inventory.");
+          setError(loadError instanceof Error ? loadError.message : "Kunne ikke laste ostelager.");
         }
       } finally {
         if (isMounted) {
@@ -198,10 +198,10 @@ export default function OstInventoryLog(props?: {
       void runBackgroundSync(
         () => saveOstCurrentState(normalizeOstEntries(pendingEntries), normalizeOstMeta(pendingDayMeta)),
         {
-          errorMessage: "Could not save cheese inventory changes. The failed edit was reverted.",
+          errorMessage: "Kunne ikke lagre endringer i ostelager. Mislykket endring ble rullet tilbake.",
           onError: (saveError) => {
             setError(
-              saveError instanceof Error ? saveError.message : "Failed to save ost inventory."
+              saveError instanceof Error ? saveError.message : "Kunne ikke lagre ostelager."
             );
             if (
               latestEntriesRef.current === pendingEntries &&
@@ -241,10 +241,10 @@ export default function OstInventoryLog(props?: {
     const previousSnapshots = lastSyncedSnapshotsRef.current;
     const timeout = window.setTimeout(() => {
       void runBackgroundSync(() => saveOstSnapshots(pendingSnapshots), {
-        errorMessage: "Could not save cheese inventory snapshots. The failed change was reverted.",
+        errorMessage: "Kunne ikke lagre øyeblikksbilder for ostelager. Endringen ble rullet tilbake.",
         onError: (saveError) => {
           setError(
-            saveError instanceof Error ? saveError.message : "Failed to save ost snapshots."
+            saveError instanceof Error ? saveError.message : "Kunne ikke lagre øyeblikksbilder for ost."
           );
           if (latestSnapshotsRef.current === pendingSnapshots) {
             setSnapshots(previousSnapshots);
@@ -341,10 +341,10 @@ export default function OstInventoryLog(props?: {
 
     try {
       await runBackgroundSync(() => deleteInventorySnapshot("ost", snapshotId), {
-        errorMessage: "Could not delete the snapshot. The failed change was reverted.",
+        errorMessage: "Kunne ikke slette øyeblikksbildet. Endringen ble rullet tilbake.",
       });
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
+      setError(deleteError instanceof Error ? deleteError.message : "Kunne ikke slette øyeblikksbilde.");
       setSnapshots(previousSnapshots);
       if (selectedSource === "current") {
         setSelectedSource(snapshotId);
@@ -362,7 +362,7 @@ export default function OstInventoryLog(props?: {
         )}
         {loading && (
           <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            Loading the latest cheese inventory values in the background...
+            Laster inn siste verdier for ostelager i bakgrunnen...
           </div>
         )}
         <div className="mb-6 flex gap-2">
@@ -372,12 +372,12 @@ export default function OstInventoryLog(props?: {
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
-              Save Snapshot
+              Lagre øyeblikksbilde
             </Button>
           )}
           {!readOnly && (
             <Button variant="outline" className="text-primary" onClick={() => onOpenArchive?.()}>
-              Storage area
+              Lagerområde
             </Button>
           )}
         </div>
@@ -395,7 +395,7 @@ export default function OstInventoryLog(props?: {
                 className="ml-auto text-red-600"
                 onClick={() => void handleDeleteSnapshot(activeSnapshot.id)}
               >
-                Delete
+                Slett
               </Button>
             )}
           </div>

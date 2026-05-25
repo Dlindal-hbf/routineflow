@@ -152,8 +152,8 @@ export default function CompensationCaseDetailDialog({
                 <UserRound className="h-4 w-4" />
                 Responsible {getCompensationAssignedOwner(caseRecord)}
               </span>
-              <span>Created {formatShortDate(caseRecord.createdAt)}</span>
-              <span>Updated {formatShortDate(caseRecord.updatedAt)}</span>
+              <span>Opprettet {formatShortDate(caseRecord.createdAt)}</span>
+              <span>Oppdatert {formatShortDate(caseRecord.updatedAt)}</span>
             </div>
           </div>
 
@@ -210,7 +210,7 @@ export default function CompensationCaseDetailDialog({
                 <DetailRow label="Notes" value={caseRecord.decisionNote} />
               )}
               {caseRecord.claimNote && (
-                <DetailRow label="Claim note" value={caseRecord.claimNote} />
+                <DetailRow label="Notat" value={caseRecord.claimNote} />
               )}
             </div>
           </Section>
@@ -218,7 +218,7 @@ export default function CompensationCaseDetailDialog({
           {(showCompletePanel || showCancelPanel) && (
             <section className="rounded-2xl bg-slate-50 p-5">
               <h3 className="text-base font-semibold text-slate-900">
-                {showCompletePanel ? "Confirm claim" : "Close case"}
+                {showCompletePanel ? "Bekreft lukking" : "Lukk sak"}
               </h3>
 
               {showCompletePanel ? (
@@ -235,7 +235,7 @@ export default function CompensationCaseDetailDialog({
                   </div>
                   <div className="md:col-span-2">
                     <label className="mb-2 block text-sm font-medium text-slate-700">
-                      Claim note
+                      Notat
                     </label>
                     <Textarea
                       value={claimNote}
@@ -246,7 +246,7 @@ export default function CompensationCaseDetailDialog({
                   </div>
                   <div className="md:col-span-2 flex justify-end gap-2">
                     <Button variant="outline" onClick={resetPanels}>
-                      Cancel
+                      Avbryt
                     </Button>
                     <Button
                       onClick={() => {
@@ -257,7 +257,7 @@ export default function CompensationCaseDetailDialog({
                         resetPanels();
                       }}
                     >
-                      Mark closed
+                      Marker som lukket
                     </Button>
                   </div>
                 </div>
@@ -333,7 +333,7 @@ export default function CompensationCaseDetailDialog({
           <div className="flex flex-wrap gap-2">
             {canEdit && (
               <Button variant="outline" onClick={() => onEdit(caseRecord)}>
-                Edit case
+                Rediger sak
               </Button>
             )}
             {canEdit && canComplete && (
@@ -354,7 +354,7 @@ export default function CompensationCaseDetailDialog({
                 onDelete(caseRecord);
               }}
             >
-              {deletePending ? "Deleting..." : "Delete"}
+              {deletePending ? "Sletter..." : "Slett"}
             </Button>
             {canEdit && (
               <Button
@@ -364,17 +364,17 @@ export default function CompensationCaseDetailDialog({
                   setShowCancelPanel(true);
                 }}
               >
-                Close case
+                Lukk sak
               </Button>
             )}
             {!canEdit && (
               <Button variant="outline" onClick={() => onReopen(caseRecord)}>
-                Reopen case
+                Gjenåpne sak
               </Button>
             )}
           </div>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            Lukk
           </Button>
         </DialogFooter>
       </DialogContent>

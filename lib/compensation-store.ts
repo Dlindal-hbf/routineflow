@@ -192,7 +192,7 @@ export function createCompensationCaseRecord(
     nextCases: [caseRecord, ...cases],
     result: {
       caseRecord,
-      historyMessage: `Created compensation case ${caseRecord.caseNumber} for ${caseRecord.customerName}.`,
+      historyMessage: `Opprettet kompensasjonssak ${caseRecord.caseNumber} for ${caseRecord.customerName}.`,
     },
   };
 }
@@ -250,7 +250,7 @@ export function updateCompensationCaseRecord(
     ),
     result: {
       caseRecord: updatedCase,
-      historyMessage: `Updated compensation case ${updatedCase.caseNumber} (${getCompensationStatusLabel(nextStatus)}).`,
+      historyMessage: `Oppdaterte kompensasjonssak ${updatedCase.caseNumber} (${getCompensationStatusLabel(nextStatus)}).`,
     },
   };
 }
@@ -294,7 +294,7 @@ export function completeCompensationCaseRecord(
     ),
     result: {
       caseRecord: updatedCase,
-      historyMessage: `Completed compensation case ${updatedCase.caseNumber}.`,
+      historyMessage: `Lukket kompensasjonssak ${updatedCase.caseNumber}.`,
     },
   };
 }
@@ -317,7 +317,7 @@ export function cancelCompensationCaseRecord(
     cancelledAt: undefined,
     archivedAt: timestamp,
     completedAt: existing.completedAt ?? timestamp,
-    archiveReason: archiveReason || "Closed",
+    archiveReason: archiveReason || "Lukket",
     updatedAt: timestamp,
     activityLog: [
       createActivityEntry(
@@ -336,7 +336,7 @@ export function cancelCompensationCaseRecord(
     ),
     result: {
       caseRecord: updatedCase,
-      historyMessage: `Closed compensation case ${updatedCase.caseNumber}.`,
+      historyMessage: `Lukket kompensasjonssak ${updatedCase.caseNumber}.`,
     },
   };
 }
@@ -372,7 +372,7 @@ export function reopenCompensationCaseRecord(
     ),
     result: {
       caseRecord: updatedCase,
-      historyMessage: `Reopened compensation case ${updatedCase.caseNumber}.`,
+      historyMessage: `Gjenåpnet kompensasjonssak ${updatedCase.caseNumber}.`,
     },
   };
 }
@@ -390,7 +390,7 @@ export function deleteCompensationCaseRecord(
     nextCases: cases.filter((caseRecord) => caseRecord.id !== caseId),
     result: {
       caseRecord: existing,
-      historyMessage: `Deleted compensation case ${existing.caseNumber}.`,
+      historyMessage: `Slettet kompensasjonssak ${existing.caseNumber}.`,
     },
   };
 }

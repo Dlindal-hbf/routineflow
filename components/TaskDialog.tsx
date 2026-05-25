@@ -76,7 +76,7 @@ export default function TaskDialog({
           />
         </div>
         <DialogFooter>
-          <Button onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={() => onOpenChange(false)}>Avbryt</Button>
           <Button onClick={handleSubmit}>OK</Button>
         </DialogFooter>
       </DialogContent>

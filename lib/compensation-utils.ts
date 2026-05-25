@@ -118,9 +118,9 @@ export function getCompensationVisibleStatusLabel(
 ): string {
   switch (status) {
     case "closed":
-      return "Closed";
+      return "Lukket";
     default:
-      return "Open";
+      return "Åpen";
   }
 }
 
@@ -300,19 +300,19 @@ export function getCompensationActivityLabel(
 ): string {
   switch (activity.type) {
     case "created":
-      return "Case created";
+      return "Sak opprettet";
     case "updated":
-      return "Case updated";
+      return "Sak oppdatert";
     case "marked_ready_for_claim":
-      return "Marked ready for claim";
+      return "Sak markert som klar";
     case "marked_completed":
-      return "Marked completed";
+      return "Sak lukket";
     case "cancelled":
-      return "Case cancelled";
+      return "Sak avbrutt";
     case "expired":
-      return "Case expired";
+      return "Sak utløpt";
     default:
-      return "Updated";
+      return "Oppdatert";
   }
 }
 

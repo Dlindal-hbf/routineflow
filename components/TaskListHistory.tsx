@@ -104,7 +104,7 @@ export default function TaskListHistory({ listId }: Props) {
             return fetchTaskStorageBundle();
           },
           {
-            errorMessage: "Could not refresh task history. Showing the last saved data.",
+            errorMessage: "Kunne ikke oppdatere oppgavehistorikk. Viser sist lagrede data.",
           }
         );
 
@@ -115,7 +115,7 @@ export default function TaskListHistory({ listId }: Props) {
         setTaskHistories(buildTaskHistories(listId, bundle));
       } catch (loadError) {
         if (isMounted) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load task history.");
+          setError(loadError instanceof Error ? loadError.message : "Kunne ikke laste oppgavehistorikk.");
         }
       } finally {
         if (isMounted) {
@@ -152,7 +152,7 @@ export default function TaskListHistory({ listId }: Props) {
         <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
           <CardContent className="flex items-center gap-3 p-4 text-sm text-slate-500">
             <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
-            <span>Loading the latest task history in the background...</span>
+            <span>Laster nyeste oppgavehistorikk i bakgrunnen...</span>
           </CardContent>
         </Card>
       )}

@@ -54,8 +54,8 @@ function groupItemsByDayKey(
 export default function SnapshotArchiveView({
   storageKey,
   onOpen,
-  emptyTitle = "No snapshots saved yet.",
-  emptyDescription = "Save a snapshot from the live module to build an archive.",
+  emptyTitle = "Ingen øyeblikksbilder lagret ennå.",
+  emptyDescription = "Lagre et øyeblikksbilde fra aktiv visning for å bygge arkiv.",
 }: SnapshotArchiveViewProps) {
   const inventoryType = resolveInventoryType(storageKey);
   const cacheKey =
@@ -98,7 +98,7 @@ export default function SnapshotArchiveView({
               : fetchBunnerInventoryState();
           },
           {
-            errorMessage: "Could not refresh snapshots. Showing the last saved archive.",
+            errorMessage: "Kunne ikke oppdatere øyeblikksbilder. Viser sist lagrede arkiv.",
           }
         );
 
@@ -119,7 +119,7 @@ export default function SnapshotArchiveView({
       } catch (loadError) {
         if (isMounted) {
           setError(
-            loadError instanceof Error ? loadError.message : "Failed to load snapshot archive."
+            loadError instanceof Error ? loadError.message : "Kunne ikke laste inn øyeblikksbildearkiv."
           );
         }
       } finally {
@@ -151,14 +151,14 @@ export default function SnapshotArchiveView({
                 actions={
                   <>
                     <Button size="sm" onClick={() => onOpen(snapshot.id)}>
-                      View
+                      Vis
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       className="text-red-600"
                       onClick={() => {
-                        if (!window.confirm("Delete this snapshot?")) {
+                        if (!window.confirm("Slette dette øyeblikksbildet?")) {
                           return;
                         }
 
@@ -171,12 +171,12 @@ export default function SnapshotArchiveView({
                           () => deleteInventorySnapshot(inventoryType, snapshot.id),
                           {
                             errorMessage:
-                              "Could not delete the snapshot. The failed change was reverted.",
+                              "Kunne ikke slette øyeblikksbildet. Endringen ble rullet tilbake.",
                             onError: (deleteError) => {
                               setError(
                                 deleteError instanceof Error
                                   ? deleteError.message
-                                  : "Failed to delete snapshot."
+                                  : "Kunne ikke slette øyeblikksbilde."
                               );
                               setSnapshots(previousSnapshots);
                             },
@@ -184,7 +184,7 @@ export default function SnapshotArchiveView({
                         ).catch(() => undefined);
                       }}
                     >
-                      Delete
+                      Slett
                     </Button>
                   </>
                 }
@@ -205,15 +205,15 @@ export default function SnapshotArchiveView({
       {loading && (
         <div className="flex items-center gap-3 rounded-2xl border border-dashed border-slate-200 bg-white px-5 py-4 text-sm text-slate-500 shadow-sm">
           <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
-          <span>Refreshing snapshots in the background...</span>
+          <span>Oppdaterer øyeblikksbilder i bakgrunnen...</span>
         </div>
       )}
       <HistoryDateBrowser
         days={days}
         emptyTitle={emptyTitle}
         emptyDescription={emptyDescription}
-        noResultsTitle="No snapshots in this month."
-        noResultsDescription="Switch months to browse older saved snapshots."
+        noResultsTitle="Ingen øyeblikksbilder denne måneden."
+        noResultsDescription="Bytt måned for å se eldre lagrede øyeblikksbilder."
       />
     </div>
   );

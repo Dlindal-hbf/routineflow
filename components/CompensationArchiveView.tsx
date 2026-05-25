@@ -64,7 +64,7 @@ export default function CompensationArchiveView({
                   meta={formatTimestamp(caseRecord.closedAt)}
                   actions={
                     <Button size="sm" onClick={() => onOpen(caseRecord)}>
-                      View
+                      Vis
                     </Button>
                   }
                 >
@@ -84,10 +84,10 @@ export default function CompensationArchiveView({
   return (
     <HistoryDateBrowser
       days={days}
-      emptyTitle="No archived compensation cases yet."
-      emptyDescription="Completed, cancelled, and expired cases will build the archive automatically."
-      noResultsTitle="No archive cases in this month."
-      noResultsDescription="Switch months or clear filters to browse older closed cases."
+      emptyTitle="Ingen arkiverte kompensasjonssaker ennå."
+      emptyDescription="Lukkede saker vises automatisk i arkivet."
+      noResultsTitle="Ingen arkivsaker denne måneden."
+      noResultsDescription="Bytt måned eller fjern filtre for å se eldre lukkede saker."
     />
   );
 }

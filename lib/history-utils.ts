@@ -57,7 +57,7 @@ export function normalizeActivityHistoryEntry(
     timestamp,
     dayKey,
     description: typeof value.description === "string" ? value.description : "",
-    category: typeof value.category === "string" ? value.category : "Other",
+    category: typeof value.category === "string" ? value.category : "Annet",
     routine: typeof value.routine === "string" ? value.routine : undefined,
   };
 }
@@ -89,7 +89,7 @@ export function groupActivityHistoryEntries(entries: ActivityHistoryEntry[]) {
       result[entry.dayKey][entry.category] = {};
     }
 
-    const subgroup = entry.category === "Task" ? entry.routine || "Other" : "All";
+    const subgroup = entry.category === "Task" ? entry.routine || "Annet" : "Alle";
     if (!result[entry.dayKey][entry.category][subgroup]) {
       result[entry.dayKey][entry.category][subgroup] = [];
     }

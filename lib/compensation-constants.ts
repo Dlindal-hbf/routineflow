@@ -13,8 +13,8 @@ export const COMPENSATION_HISTORY_TIMEZONE = "Europe/Oslo";
 export const COMPENSATION_DEFAULT_CURRENCY = "NOK";
 
 export const COMPENSATION_TABS: Array<{ value: CompensationTab; label: string }> = [
-  { value: "open", label: "Open" },
-  { value: "closed", label: "Closed" },
+  { value: "open", label: "Åpen" },
+  { value: "closed", label: "Lukket" },
 ];
 
 export const COMPENSATION_STATUSES: CompensationStatus[] = [
@@ -27,12 +27,12 @@ export const COMPENSATION_STATUSES: CompensationStatus[] = [
 ];
 
 export const COMPENSATION_STATUS_LABELS: Record<CompensationStatus, string> = {
-  pending: "Pending",
-  approved: "Approved",
-  ready_for_claim: "Ready for claim",
-  completed: "Completed",
-  cancelled: "Cancelled",
-  expired: "Expired",
+  pending: "Åpen",
+  approved: "Åpen",
+  ready_for_claim: "Åpen",
+  completed: "Lukket",
+  cancelled: "Lukket",
+  expired: "Lukket",
 };
 
 export const COMPENSATION_STATUS_BADGE_CLASS_NAMES: Record<
@@ -72,7 +72,7 @@ export const COMPENSATION_TYPE_LABELS: Record<CompensationType, string> = {
   replacement_product: "Replacement product",
   immediate_fix: "Immediate fix",
   store_credit: "Store credit",
-  other: "Other",
+  other: "Annet",
 };
 
 export const COMPENSATION_TYPE_TONE_CLASS_NAMES: Record<CompensationType, string> =
@@ -104,7 +104,7 @@ export const COMPENSATION_ISSUE_CATEGORY_LABELS: Record<
   missing_item: "Missing item",
   service_issue: "Service issue",
   delay: "Delay",
-  other: "Other",
+  other: "Annet",
 };
 
 export const COMPENSATION_ISSUE_CATEGORY_TONE_CLASS_NAMES: Record<

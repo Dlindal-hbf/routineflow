@@ -44,7 +44,7 @@ export default function BackgroundSyncStatus() {
         <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white/95 px-4 py-2 text-sm text-slate-600 shadow-lg backdrop-blur">
           <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
           <span>
-            Syncing in background{snapshot.pendingCount > 1 ? ` (${snapshot.pendingCount})` : ""}
+            Synkroniserer i bakgrunnen{snapshot.pendingCount > 1 ? ` (${snapshot.pendingCount})` : ""}
           </span>
         </div>
       )}

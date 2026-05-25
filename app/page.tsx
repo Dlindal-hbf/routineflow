@@ -25,7 +25,6 @@ import TaskDialog from "../components/TaskDialog";
 import ActivityHistoryView from "@/components/history/ActivityHistoryView";
 import HistoryPageShell from "@/components/history/HistoryPageShell";
 import SnapshotArchiveView from "@/components/history/SnapshotArchiveView";
-import PageHeader from "@/components/ui/PageHeader";
 import BrandedHeader from "@/components/BrandedHeader";
 import BackgroundSyncStatus from "@/components/BackgroundSyncStatus";
 import { Textarea } from "@/components/ui/textarea";
@@ -102,11 +101,11 @@ type Frequency = "Daily" | "Weekly" | "Bi-weekly" | "Monthly";
 type LogType = "Deviation" | "Batch Tracing" | "Compensation" | "Other";
 
 const logTypeFilterOptions: AppSelectOption<LogType | "All">[] = [
-  { value: "All", label: "All entries" },
+  { value: "All", label: "Alle oppføringer" },
   { value: "Batch Tracing", label: "LOT-sporing" },
   { value: "Deviation", label: "Avvik" },
   { value: "Compensation", label: "Kompensasjoner" },
-  { value: "Other", label: "Other" },
+  { value: "Other", label: "Annet" },
 ];
 
 // individual history record for a task
@@ -399,7 +398,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       setUser(u);
       setView("overview");
     } else {
-      alert("Invalid code");
+      alert("Ugyldig kode");
     }
   };
 
@@ -414,7 +413,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
   const requireAdmin = () => {
     if (user?.role !== "admin") {
-      alert("Admin access required");
+      alert("Administrator-tilgang kreves");
       return false;
     }
     return true;
@@ -565,7 +564,7 @@ export default function WorkplaceRoutinesDemoStyle() {
             ]);
           },
           {
-            errorMessage: "Could not refresh business data. Showing your last saved content.",
+            errorMessage: "Kunne ikke oppdatere virksomhetsdata. Viser sist lagrede innhold.",
           }
         );
 
@@ -594,7 +593,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           pushBackgroundSyncError(
             loadError instanceof Error
               ? loadError.message
-              : "Could not load business data from Supabase."
+              : "Kunne ikke laste virksomhetsdata fra Supabase."
           );
         }
       } finally {
@@ -646,7 +645,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         ]);
       },
       {
-        errorMessage: "Could not warm up background data from Supabase.",
+        errorMessage: "Kunne ikke klargjøre bakgrunnsdata fra Supabase.",
         suppressErrorToast: true,
       }
     ).catch(() => undefined);
@@ -673,7 +672,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           () =>
             fetchRoutineChecklistTasks(selectedRoutineId, routine.title, routine.tasks),
           {
-            errorMessage: "Could not refresh the routine checklist. Showing the last known tasks.",
+            errorMessage: "Kunne ikke oppdatere rutinesjekklisten. Viser sist kjente oppgaver.",
           }
         );
 
@@ -687,7 +686,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           pushBackgroundSyncError(
             loadError instanceof Error
               ? loadError.message
-              : "Failed to load the routine checklist."
+              : "Kunne ikke laste rutinesjekklisten."
           );
           setRoutineTasks(routine.tasks);
           lastSyncedRoutineTasksRef.current = routine.tasks;
@@ -722,7 +721,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       void runBackgroundSync(
         () => saveRoutineChecklistTasks(selectedRoutineId, routine.title, pendingTasks),
         {
-          errorMessage: "Could not save the routine checklist. The last failed change was reverted.",
+          errorMessage: "Kunne ikke lagre rutinesjekklisten. Siste mislykkede endring ble rullet tilbake.",
           onError: () => {
             if (latestRoutineTasksRef.current === pendingTasks) {
               setRoutineTasks(previousTasks);
@@ -754,7 +753,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     const previousWorkLog = lastSyncedWorkLogRef.current;
     const timeout = window.setTimeout(() => {
       void runBackgroundSync(() => saveWorkLogEntries(pendingWorkLog), {
-        errorMessage: "Could not save the work log. The last failed change was reverted.",
+        errorMessage: "Kunne ikke lagre arbeidsloggen. Siste mislykkede endring ble rullet tilbake.",
         onError: () => {
           if (latestWorkLogRef.current === pendingWorkLog) {
             setWorkLog(previousWorkLog);
@@ -786,7 +785,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     const timeout = window.setTimeout(() => {
       void runBackgroundSync(() => saveActivityHistoryEntries(pendingHistory), {
         errorMessage:
-          "Could not save activity history. The last failed change was reverted.",
+          "Kunne ikke lagre aktivitetshistorikk. Siste mislykkede endring ble rullet tilbake.",
         onError: () => {
           if (latestHistoryRef.current === pendingHistory) {
             setHistory(previousHistory);
@@ -822,7 +821,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     const previousTaskLists = lastSyncedTaskListsRef.current;
     const timeout = window.setTimeout(() => {
       void runBackgroundSync(() => saveTaskListRecords(pendingTaskLists), {
-        errorMessage: "Could not save the task lists. The last failed change was reverted.",
+        errorMessage: "Kunne ikke lagre oppgavelistene. Siste mislykkede endring ble rullet tilbake.",
         onError: () => {
           if (latestTaskListsRef.current === pendingTaskLists) {
             replaceTaskListsFromRemote(previousTaskLists);
@@ -848,7 +847,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     const checkDueResets = async () => {
       try {
         await runBackgroundSync(() => processDueResetsInSupabase(new Date()), {
-          errorMessage: "Could not process scheduled resets in the background.",
+          errorMessage: "Kunne ikke behandle planlagte nullstillinger i bakgrunnen.",
           suppressErrorToast: true,
         });
         const refreshedLists = await loadTaskListsFromStoreEvent();
@@ -858,7 +857,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         pushBackgroundSyncError(
           resetError instanceof Error
             ? resetError.message
-            : "Failed to process scheduled resets."
+            : "Kunne ikke behandle planlagte nullstillinger."
         );
       }
     };
@@ -953,7 +952,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       if (!title) return;
       const details = window.prompt("Details", "") || "";
       const type = (window.prompt(
-        "Type (LOT-sporing / Avvik / Kompensasjoner / Other)",
+                "Type (LOT-sporing / Avvik / Kompensasjoner / Annet)",
         defaultType || "Batch Tracing"
       ) as LogType) || defaultType || "Batch Tracing";
       const author = window.prompt("Author", "") || "";
@@ -966,7 +965,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         { id: nextLogId(), title, details, type, author, date, pills },
       ]);
       setHistory((prev) => [
-        createActivityHistoryEntry(`Added a new ${type} entry: ${title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`La til ny ${type}-oppføring: ${title}`, "Arbeidslogg", undefined, date),
         ...prev,
       ]);
     }
@@ -986,7 +985,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       const details = window.prompt("Details", entry.details) || entry.details;
       const type =
         (window.prompt(
-          "Type (LOT-sporing / Avvik / Kompensasjoner / Other)",
+          "Type (LOT-sporing / Avvik / Kompensasjoner / Annet)",
           entry.type
         ) as LogType) || entry.type;
       const author = window.prompt("Author", entry.author) || entry.author;
@@ -1001,7 +1000,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         )
       );
       setHistory((prev) => [
-        createActivityHistoryEntry(`Edited ${entry.type} entry: ${entry.title}`, "Work Log"),
+        createActivityHistoryEntry(`Redigerte ${entry.type}-oppføring: ${entry.title}`, "Arbeidslogg"),
         ...prev,
       ]);
     }
@@ -1010,11 +1009,11 @@ export default function WorkplaceRoutinesDemoStyle() {
   const deleteLogEntry = (id: number) => {
     if (!requireAdmin()) return;
     const entry = workLog.find(e => e.id === id);
-    if (window.confirm("Delete this entry?")) {
+    if (window.confirm("Slette denne oppføringen?")) {
       setWorkLog((cur) => cur.filter((e) => e.id !== id));
       if (entry) {
         setHistory((prev) => [
-          createActivityHistoryEntry(`Deleted ${entry.type} entry: ${entry.title}`, "Work Log"),
+          createActivityHistoryEntry(`Slettet ${entry.type}-oppføring: ${entry.title}`, "Arbeidslogg"),
           ...prev,
         ]);
       }
@@ -1032,7 +1031,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       { id: nextLogId(), title, details, type: "Deviation", author: employee, date, pills: [] },
     ]);
     setHistory((prev) => [
-      createActivityHistoryEntry(`Added a new Avvik entry: ${title}`, "Work Log", undefined, date),
+      createActivityHistoryEntry(`La til ny avviksoppføring: ${title}`, "Arbeidslogg", undefined, date),
       ...prev,
     ]);
     setIsAvvikDialogOpen(false);
@@ -1061,13 +1060,13 @@ export default function WorkplaceRoutinesDemoStyle() {
         cur.map((e) => (e.id === editingCompId ? entry : e))
       );
       setHistory((prev) => [
-        createActivityHistoryEntry(`Edited Compensation entry: ${entry.title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`Redigerte kompensasjonsoppføring: ${entry.title}`, "Arbeidslogg", undefined, date),
         ...prev,
       ]);
     } else {
       setWorkLog((cur) => [...cur, entry]);
       setHistory((prev) => [
-        createActivityHistoryEntry(`Added a new Compensation entry: ${entry.title}`, "Work Log", undefined, date),
+        createActivityHistoryEntry(`La til ny kompensasjonsoppføring: ${entry.title}`, "Arbeidslogg", undefined, date),
         ...prev,
       ]);
     }
@@ -1092,7 +1091,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (newCompleted) {
       setHistory((prev) => [
-        createActivityHistoryEntry(`Completed task: ${task.title}`, "Task", routine.title),
+        createActivityHistoryEntry(`Fullførte oppgave: ${task.title}`, "Oppgave", routine.title),
         ...prev,
       ]);
     } else {
@@ -1411,7 +1410,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     const templateIndex = Number.parseInt(selectedTemplateIndex, 10);
     const template = Number.isNaN(templateIndex) ? undefined : ROUTINE_TEMPLATES[templateIndex];
     if (!template) {
-      setCreateRoutineError("Please select a template.");
+      setCreateRoutineError("Velg en mal.");
       return;
     }
 
@@ -1493,7 +1492,7 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     if (task) {
       setHistory((prev) => [
-        createActivityHistoryEntry(`Deleted task: ${task.title}`, "Daily Task", list.title),
+        createActivityHistoryEntry(`Slettet oppgave: ${task.title}`, "Daglig oppgave", list.title),
         ...prev,
       ]);
     }
@@ -1617,15 +1616,15 @@ export default function WorkplaceRoutinesDemoStyle() {
           <div className="mt-12 grid max-w-md grid-cols-2 gap-6 text-center text-foreground/60">
             <div>
               <Calendar className="mx-auto h-8 w-8 opacity-50" />
-              <span className="mt-2 block">History</span>
+              <span className="mt-2 block">Historikk</span>
             </div>
             <div>
               <BookOpen className="mx-auto h-8 w-8 opacity-50" />
-              <span className="mt-2 block">Work Log</span>
+              <span className="mt-2 block">Arbeidslogg</span>
             </div>
             <div>
               <Users className="mx-auto h-8 w-8 opacity-50" />
-              <span className="mt-2 block">Workers</span>
+              <span className="mt-2 block">Ansatte</span>
             </div>
             <div>
               <ClipboardList className="mx-auto h-8 w-8 opacity-50" />
@@ -1646,64 +1645,68 @@ export default function WorkplaceRoutinesDemoStyle() {
         <div>
           {user?.role === "staff" && (
             <div className="border-b border-accent/40 bg-accent/20 py-2 text-center text-accent-foreground">
-              You are signed in as <strong>staff</strong>. Editing is disabled.
+              Du er logget inn som <strong>ansatt</strong>. Redigering er deaktivert.
             </div>
           )}
-          <header className="border-b-4 border-primary bg-background shadow-sm">
-            <div className="mx-auto max-w-7xl px-6 py-8">
-              <div className="mb-3 h-1 w-32 rounded-full bg-accent" />
-              <PageHeader
-                title={
-                  <div className="flex items-center gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/15 bg-primary/10">
-                      <ClipboardList className="h-6 w-6 text-primary" />
+          <header className="border-b border-primary/15 bg-background">
+            <div className="mx-auto max-w-7xl px-6 py-4">
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/15 bg-primary/10">
+                      <ClipboardList className="h-5 w-5 text-primary" />
                     </div>
-                    <span className="text-xl font-heading font-semibold text-primary">
-                      PB INTERNE RUTINER
-                    </span>
+                    <div>
+                      <h1 className="text-lg font-heading font-semibold tracking-tight text-primary">
+                        PB INTERNE RUTINER
+                      </h1>
+                      <p className="text-sm text-foreground/70">
+                        Daglige oppgaver og rutiner for alle avdelinger
+                      </p>
+                    </div>
                   </div>
-                }
-                subtitle="Daglige oppgaver og rutiner for alle avdelinger"
-                actions={
-                  <div className="flex flex-wrap items-center gap-2">
-                    {[
-                      { key: "work-log", label: "Work Log", icon: BookOpen },
-                      { key: "compensation", label: "Compensation", icon: HandCoins },
-                      { key: "inventory", label: "Inventory", icon: Package },
-                      { key: "workers", label: "Workers", icon: Users },
-                    ].map((item) => {
-                      const Icon = item.icon;
-                      const isActive = view === item.key;
-                      return (
-                        <Button
-                          key={item.key}
-                          variant={isActive ? "default" : "outline"}
-                          className={cn(
-                            "h-10 rounded-xl px-4 text-sm font-medium",
-                            !isActive && "text-slate-600 hover:text-slate-900"
-                          )}
-                          onClick={() => setView(item.key as View)}
-                        >
-                          <Icon className="h-4 w-4" />
-                          {item.label}
-                        </Button>
-                      );
-                    })}
-                  </div>
-                }
-              />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 border-t border-primary/10 pt-3">
+                  {[
+                    { key: "work-log", label: "Arbeidslogg", icon: BookOpen },
+                    { key: "compensation", label: "Kompensasjon", icon: HandCoins },
+                    { key: "inventory", label: "Lager", icon: Package },
+                    { key: "workers", label: "Ansatte", icon: Users },
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const isActive = view === item.key;
+                    return (
+                      <Button
+                        key={item.key}
+                        variant="outline"
+                        className={cn(
+                          "h-9 rounded-lg border px-3 text-sm",
+                          isActive
+                            ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "border-primary/15 bg-white text-foreground/80 hover:border-accent/40 hover:bg-accent/20 hover:text-foreground"
+                        )}
+                        onClick={() => setView(item.key as View)}
+                      >
+                        <Icon className="h-4 w-4" />
+                        {item.label}
+                      </Button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </header>
 
-          <main className="mx-auto max-w-7xl px-6 py-10">
+          <main className="mx-auto max-w-7xl px-6 py-6">
             {showTaskListLoadingSkeletons && (
               <div className="mb-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
                 <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
-                <span>Loading your task lists and activity data…</span>
+                <span>Laster oppgavelister og aktivitetsdata…</span>
               </div>
             )}
             <motion.div 
-              className="grid gap-8 lg:grid-cols-3"
+              className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3"
               initial="hidden"
               animate="visible"
               variants={{
@@ -1721,7 +1724,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 Array.from({ length: 3 }, (_, index) => (
                   <LoadingSkeletonCard
                     key={`task-list-skeleton-${index}`}
-                    title="Loading task list"
+                    title="Laster oppgaveliste"
                     description="Fetching routines and saved progress from Supabase."
                   />
                 ))}
@@ -1749,16 +1752,17 @@ export default function WorkplaceRoutinesDemoStyle() {
 
               {/* New list card */}
               {user?.role === "admin" && (
-                <ListCard
-                  title="Ny liste"
-                  accentClass="cursor-pointer"
+                <button
+                  type="button"
                   onClick={promptNewList}
+                  className="group flex min-h-[148px] flex-col items-center justify-center rounded-2xl border border-dashed border-primary/25 bg-white px-4 py-5 text-center transition-colors hover:border-accent/50 hover:bg-accent/10"
                 >
-                  <div className="flex flex-col items-center justify-center">
-                    <Plus className="h-10 w-10 text-primary" />
-                    <span className="mt-2 text-xl text-primary">Ny liste</span>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary transition-colors group-hover:bg-accent/30">
+                    <Plus className="h-5 w-5" />
                   </div>
-                </ListCard>
+                  <span className="mt-2 text-sm font-semibold text-primary">Ny liste</span>
+                  <span className="text-xs text-foreground/60">Opprett ny rutineliste</span>
+                </button>
               )}
             </motion.div>
           </main>
@@ -1858,7 +1862,7 @@ export default function WorkplaceRoutinesDemoStyle() {
             setHistory((prev) => [
               createActivityHistoryEntry(
                 description,
-                "Compensation",
+                "Kompensasjon",
                 undefined,
                 new Date().toISOString()
               ),
@@ -1878,7 +1882,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 className="mb-8 flex items-center gap-3 text-lg font-medium text-white/90 hover:text-white"
               >
                 <ArrowLeft className="h-5 w-5" />
-                Back
+                Tilbake
               </button>
               <div className="flex items-center justify-between">
                 <div>
@@ -1895,7 +1899,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                     className="h-14 rounded-2xl bg-white/20 px-6 text-xl font-semibold text-white hover:bg-white/30"
                   >
                     <Calendar className="mr-3 h-6 w-6" />
-                    View History
+                    Vis historikk
                   </Button>
                   {user?.role === "admin" && (
                     <Button
@@ -1939,7 +1943,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   className="mt-4 flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
                 >
                   <ArrowLeft className="h-5 w-5" />
-                  Back
+                  Tilbake
                 </button>
 
                 <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-gold-muted">
@@ -1947,7 +1951,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 </div>
 
                 <div>
-                  <h1 className="text-4xl font-bold tracking-tight">Work Log</h1>
+                  <h1 className="text-4xl font-bold tracking-tight">Arbeidslogg</h1>
                   <p className="mt-1 text-2xl text-slate-500">
                     Avvik, LOT-sporing & kompensaasjoner
                   </p>
@@ -1981,7 +1985,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                 <Input
                   value={logSearch}
                   onChange={(e) => setLogSearch(e.target.value)}
-                  placeholder="Search entries..."
+                  placeholder="Søk i oppføringer..."
                   className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-2xl"
                 />
               </div>
@@ -2003,7 +2007,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   {Array.from({ length: 4 }, (_, index) => (
                     <LoadingSkeletonCard
                       key={`work-log-stat-skeleton-${index}`}
-                      title="Loading work log"
+                      title="Laster arbeidslogg"
                       description="Fetching counts and recent entries from Supabase."
                     />
                   ))}
@@ -2012,7 +2016,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   {Array.from({ length: 3 }, (_, index) => (
                     <LoadingSkeletonCard
                       key={`work-log-entry-skeleton-${index}`}
-                      title="Loading entry"
+                      title="Laster oppføring"
                       description="Recent work-log entries will appear here."
                     />
                   ))}
@@ -2084,7 +2088,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   <Card className="rounded-3xl border border-slate-200 bg-white">
                     <CardContent className="p-6">
                       <div className="text-5xl font-bold text-slate-600">{logStats.other}</div>
-                      <div className="mt-2 text-xl text-slate-500">Other</div>
+                      <div className="mt-2 text-xl text-slate-500">Annet</div>
                       <div className="mt-4">
                         {user?.role === "admin" ? (
                           <Button onClick={() => addLogEntry("Other")} className="w-full h-10 text-lg" asChild>
@@ -2204,10 +2208,10 @@ export default function WorkplaceRoutinesDemoStyle() {
                   className="flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
                 >
                   <ArrowLeft className="h-5 w-5" />
-                  Back
+                  Tilbake
                 </button>
                 <div>
-                  <h1 className="text-4xl font-bold">Workers</h1>
+                  <h1 className="text-4xl font-bold">Ansatte</h1>
                   <p className="text-2xl text-slate-500">Team overview and access</p>
                 </div>
               </div>
@@ -2243,9 +2247,9 @@ export default function WorkplaceRoutinesDemoStyle() {
                     className="flex items-center gap-2 text-xl text-primary hover:text-primary/80"
                   >
                     <ArrowLeft className="h-5 w-5" />
-                    Back
+                    Tilbake
                   </button>
-                  <h1 className="text-4xl font-bold tracking-tight">Inventory</h1>
+                  <h1 className="text-4xl font-bold tracking-tight">Lager</h1>
                 </div>
               </header>
 
@@ -2285,7 +2289,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                       className="mt-4 flex items-center gap-2 text-xl text-primary hover:text-primary/80"
                     >
                       <ArrowLeft className="h-5 w-5" />
-                      Back
+                      Tilbake
                     </button>
 
                     <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
@@ -2294,12 +2298,12 @@ export default function WorkplaceRoutinesDemoStyle() {
 
                     <div>
                       <h1 className="text-4xl font-bold tracking-tight">
-                        {inventorySubView === "bunner" ? "Bunner Inventory" : "Ost Inventory"}
+                        {inventorySubView === "bunner" ? "Bunner-lager" : "Ost-lager"}
                       </h1>
                       <p className="mt-1 text-2xl text-slate-500">
                         {inventorySubView === "bunner"
-                          ? "Daily product amounts by size and status"
-                          : "Daily cheese inventory with signed logging"}
+                          ? "Daglige produktmengder etter størrelse og status"
+                          : "Daglig ostelager med signert logging"}
                       </p>
                     </div>
                   </div>
@@ -2311,7 +2315,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                         setView("inventory-archive");
                       }}
                     >
-                      Storage area
+                      Lagerområde
                     </Button>
                   </div>
                 </div>
@@ -2344,7 +2348,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       {view === "inventory-archive" && (
         <HistoryPageShell
           title={inventoryArchiveType === "bunner" ? "Bunner Archive" : "Ost Archive"}
-          description="Saved read-only snapshots"
+          description="Lagrede skrivebeskyttede øyeblikksbilder"
           onBack={() => {
             setSnapshotId(null);
             setView("inventory");
@@ -2363,8 +2367,8 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "inventory-snapshot" && snapshotId && (
         <HistoryPageShell
-          title="Snapshot Viewer"
-          description="Read-only archived snapshot"
+          title="Visning av øyeblikksbilde"
+          description="Skrivebeskyttet arkivert øyeblikksbilde"
           onBack={() => {
             setSnapshotId(null);
             setView("inventory-archive");
@@ -2381,8 +2385,8 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "history" && (
         <HistoryPageShell
-          title="History"
-          description="Recent routine activity"
+          title="Historikk"
+          description="Nylig rutineaktivitet"
           onBack={() => setView("overview")}
           bodyClassName="max-w-5xl"
           actions={
@@ -2396,15 +2400,15 @@ export default function WorkplaceRoutinesDemoStyle() {
                 variant="outline"
                 className="h-12 px-4 text-lg"
               >
-                Clear History
+                Tøm historikk
               </Button>
             ) : undefined
           }
         >
           {showHistoryLoadingSkeleton ? (
             <LoadingSkeletonCard
-              title="Loading history"
-              description="Recent activity will appear here as soon as the sync completes."
+              title="Laster historikk"
+              description="Nylig aktivitet vises her så snart synkroniseringen er ferdig."
             />
           ) : (
             <ActivityHistoryView entries={history} />
@@ -2414,8 +2418,8 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "list-history" && selectedList && (
         <HistoryPageShell
-          title={`${selectedList.title} History`}
-          description="Task completion history"
+          title={`${selectedList.title} historikk`}
+          description="Historikk for fullførte oppgaver"
           onBack={() => setView("list-detail")}
           accentClassName={getBgClass(selectedList.color)}
           bodyClassName="max-w-7xl"
@@ -2427,11 +2431,11 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isAvvikDialogOpen} onOpenChange={setIsAvvikDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Log Avvik Entry</DialogTitle>
+            <DialogTitle>Loggfør avvik</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-2">Type of Avvik</label>
+              <label className="block text-sm font-medium mb-2">Type avvik</label>
               <Select value={avvikType} onValueChange={setAvvikType}>
                 <SelectTrigger>
                   <SelectValue />
@@ -2443,7 +2447,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Product Type</label>
+              <label className="block text-sm font-medium mb-2">Produkttype</label>
               <Select value={productType} onValueChange={setProductType}>
                 <SelectTrigger>
                   <SelectValue />
@@ -2457,11 +2461,11 @@ export default function WorkplaceRoutinesDemoStyle() {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">Employee Name</label>
+              <label className="block text-sm font-medium mb-2">Ansattnavn</label>
               <Input
                 value={employee}
                 onChange={(e) => setEmployee(e.target.value)}
-                placeholder="Enter employee name"
+                placeholder="Skriv inn ansattnavn"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     e.preventDefault();
@@ -2471,7 +2475,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               />
             </div>
             <div className="mt-4 flex justify-end">
-              <Button onClick={submitAvvikEntry}>Save</Button>
+              <Button onClick={submitAvvikEntry}>Lagre</Button>
             </div>
           </div>
         </DialogContent>
@@ -2525,20 +2529,20 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isListSettingsOpen} onOpenChange={setIsListSettingsOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>List options</DialogTitle>
+            <DialogTitle>Listevalg</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <Button
               className="w-full"
               onClick={() => handleListSettingsAction("edit")}
             >
-              Edit list
+              Rediger liste
             </Button>
             <Button
               className="w-full"
               onClick={() => handleListSettingsAction("delete")}
             >
-              Delete list
+              Slett liste
             </Button>
           </div>
         </DialogContent>
@@ -2587,7 +2591,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isCreateRoutineDialogOpen} onOpenChange={setIsCreateRoutineDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Routine</DialogTitle>
+            <DialogTitle>Opprett rutine</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <label className="flex items-center gap-3 text-base">
@@ -2600,7 +2604,7 @@ export default function WorkplaceRoutinesDemoStyle() {
                   setCreateRoutineError(null);
                 }}
               />
-              <span>Blank routine</span>
+              <span>Tom rutine</span>
             </label>
 
             <label className="flex items-center gap-3 text-base">
@@ -2613,18 +2617,18 @@ export default function WorkplaceRoutinesDemoStyle() {
                   setCreateRoutineError(null);
                 }}
               />
-              <span>From template</span>
+              <span>Fra mal</span>
             </label>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">Templates</label>
+              <label className="text-sm font-medium">Maler</label>
               <Select
                 value={selectedTemplateIndex}
                 onValueChange={setSelectedTemplateIndex}
                 disabled={createRoutineMode !== "template"}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select template" />
+                  <SelectValue placeholder="Velg mal" />
                 </SelectTrigger>
                 <SelectContent>
                   {ROUTINE_TEMPLATES.map((template, index) => (
@@ -2640,7 +2644,7 @@ export default function WorkplaceRoutinesDemoStyle() {
           </div>
           <DialogFooter>
             <Button onClick={() => setIsCreateRoutineDialogOpen(false)}>Avbryt</Button>
-            <Button onClick={handleCreateRoutine}>Create</Button>
+            <Button onClick={handleCreateRoutine}>Opprett</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2649,14 +2653,14 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isNewListDialogOpen} onOpenChange={setIsNewListDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Name for new list</DialogTitle>
-            <DialogDescription>Provide a name, reset schedule, and accent color.</DialogDescription>
+            <DialogTitle>Navn på ny liste</DialogTitle>
+            <DialogDescription>Angi navn, nullstillingsplan og aksentfarge.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input
               value={newListName}
               onChange={(e) => setNewListName(e.target.value)}
-              placeholder="List name"
+              placeholder="Listenavn"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -2669,7 +2673,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               onChange={setNewListSchedule}
             />
             <div>
-              <label className="block text-sm font-medium mb-1">Accent color</label>
+              <label className="block text-sm font-medium mb-1">Aksentfarge</label>
               <ColorPicker
                 value={newListColor as ColorKey}
                 onChange={(c) => setNewListColor(c)}
@@ -2687,14 +2691,14 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isEditListDialogOpen} onOpenChange={setIsEditListDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Edit list</DialogTitle>
-            <DialogDescription>Change name, reset schedule, or accent color.</DialogDescription>
+            <DialogTitle>Rediger liste</DialogTitle>
+            <DialogDescription>Endre navn, nullstillingsplan eller aksentfarge.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <Input
               value={editListName}
               onChange={(e) => setEditListName(e.target.value)}
-              placeholder="List name"
+              placeholder="Listenavn"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -2707,7 +2711,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               onChange={setEditListSchedule}
             />
             <div>
-              <label className="block text-sm font-medium mb-1">Accent color</label>
+              <label className="block text-sm font-medium mb-1">Aksentfarge</label>
               <ColorPicker
                 value={editListColor as ColorKey}
                 onChange={(c) => setEditListColor(c)}
@@ -2726,7 +2730,7 @@ export default function WorkplaceRoutinesDemoStyle() {
         open={isTaskDialogOpen}
         onOpenChange={setIsTaskDialogOpen}
         titleText={
-          taskDialogMode === "create" ? "Add task" : "Edit task"
+          taskDialogMode === "create" ? "Legg til oppgave" : "Rediger oppgave"
         }
         initialTitle={taskDialogInitTitle}
         initialDescription={taskDialogInitDescription}
@@ -2736,7 +2740,7 @@ export default function WorkplaceRoutinesDemoStyle() {
       <Dialog open={isCompDialogOpen} onOpenChange={setIsCompDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editingCompId != null ? "Edit Compensation" : "New Compensation"}</DialogTitle>
+            <DialogTitle>{editingCompId != null ? "Rediger kompensasjon" : "Ny kompensasjon"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
@@ -2744,7 +2748,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               <Textarea
                 value={compReason}
                 onChange={(e) => setCompReason(e.target.value)}
-                placeholder="Describe what happened"
+                placeholder="Beskriv hva som skjedde"
                 rows={3}
               />
             </div>
@@ -2753,7 +2757,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               <Textarea
                 value={compCompensation}
                 onChange={(e) => setCompCompensation(e.target.value)}
-                placeholder="What was given as compensation"
+                placeholder="Hva ble gitt i kompensasjon"
                 rows={2}
               />
             </div>
@@ -2772,7 +2776,7 @@ export default function WorkplaceRoutinesDemoStyle() {
               />
             </div>
             <div className="mt-4 flex justify-end">
-              <Button onClick={submitCompEntry}>{editingCompId != null ? "Update" : "Save"}</Button>
+              <Button onClick={submitCompEntry}>{editingCompId != null ? "Oppdater" : "Lagre"}</Button>
             </div>
           </div>
         </DialogContent>

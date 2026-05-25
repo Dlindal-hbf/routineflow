@@ -86,7 +86,7 @@ export default function CompensationCaseCard({
                   className="rounded-lg"
                 >
                   <PenLine className="h-4 w-4" />
-                  Edit
+                  Rediger
                 </Button>
               )}
 
@@ -97,7 +97,7 @@ export default function CompensationCaseCard({
                   className="rounded-lg"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  Claim
+                  Lukk
                 </Button>
               )}
 
@@ -109,7 +109,7 @@ export default function CompensationCaseCard({
                   className="rounded-lg text-red-600 hover:text-red-700"
                 >
                   <Trash2 className="h-4 w-4" />
-                  Delete
+                  Slett
                 </Button>
               )}
             </div>

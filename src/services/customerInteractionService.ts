@@ -92,7 +92,7 @@ function isUniqueCaseNumberViolation(error: unknown): boolean {
 }
 
 function toSafeCreateError(): Error {
-  return new Error("Could not create case. Please try again.");
+  return new Error("Kunne ikke opprette sak. Prøv igjen.");
 }
 
 function mapInteractionRow(row: CustomerInteractionRow): CompensationCase {

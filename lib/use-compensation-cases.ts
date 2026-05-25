@@ -75,7 +75,7 @@ export function useCompensationCases(enabled = true) {
           },
           {
             errorMessage:
-              "Could not refresh compensation cases. Showing the last saved data.",
+              "Kunne ikke oppdatere kompensasjonssaker. Viser sist lagrede data.",
           }
         );
         if (!isMounted) {
@@ -88,7 +88,7 @@ export function useCompensationCases(enabled = true) {
           return;
         }
 
-        setError(loadError instanceof Error ? loadError.message : "Failed to load compensation cases.");
+        setError(loadError instanceof Error ? loadError.message : "Kunne ikke laste kompensasjonssaker.");
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -119,12 +119,12 @@ export function useCompensationCases(enabled = true) {
     void runBackgroundSync(
       () => deleteCustomerInteraction(caseId),
       {
-        errorMessage: "Could not delete the compensation case. The failed change was reverted.",
+        errorMessage: "Kunne ikke slette kompensasjonssaken. Endringen ble rullet tilbake.",
         onError: (mutationError) => {
           setError(
             mutationError instanceof Error
               ? mutationError.message
-              : "Failed to delete compensation case."
+              : "Kunne ikke slette kompensasjonssaken."
           );
           if (latestCasesRef.current === outcome.nextCases) {
             setCases(currentCases);
@@ -151,12 +151,12 @@ export function useCompensationCases(enabled = true) {
     void runBackgroundSync(
       () => upsertCustomerInteraction(outcome.result.caseRecord),
       {
-        errorMessage: "Could not save the compensation case. The failed change was reverted.",
+        errorMessage: "Kunne ikke lagre kompensasjonssaken. Endringen ble rullet tilbake.",
         onError: (mutationError) => {
           setError(
             mutationError instanceof Error
               ? mutationError.message
-              : "Failed to save compensation case."
+              : "Kunne ikke lagre kompensasjonssaken."
           );
           if (latestCasesRef.current === outcome.nextCases) {
             setCases(currentCases);
@@ -196,11 +196,11 @@ export function useCompensationCases(enabled = true) {
       try {
         const fetchedCases = await runBackgroundSync(() => fetchCustomerInteractions(), {
           errorMessage:
-            "Could not refresh compensation cases. Showing the last saved data.",
+            "Kunne ikke oppdatere kompensasjonssaker. Viser sist lagrede data.",
         });
         setCases(fetchedCases);
       } catch (reloadError) {
-        setError(reloadError instanceof Error ? reloadError.message : "Failed to reload compensation cases.");
+        setError(reloadError instanceof Error ? reloadError.message : "Kunne ikke laste inn kompensasjonssaker på nytt.");
       } finally {
         setLoading(false);
         setRefreshing(false);

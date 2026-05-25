@@ -19,7 +19,7 @@ export default function HistoryPageShell({
   title,
   description,
   onBack,
-  backLabel = "Back",
+  backLabel = "Tilbake",
   actions,
   accentClassName,
   bodyClassName,

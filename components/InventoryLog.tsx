@@ -35,7 +35,7 @@ function getTodayName(): string {
 
 function formatSnapshotName(date: Date, includePrefix = false): string {
   const baseName = `${formatDate(date)} (${getWeekdayName(date, { locale: "no-NO" })})`;
-  return includePrefix ? `Inventory ${baseName}` : baseName;
+  return includePrefix ? `Lager ${baseName}` : baseName;
 }
 
 const changeMetrics: Metric[] = [
@@ -109,7 +109,7 @@ export default function InventoryLog(props?: {
             return fetchBunnerInventoryState();
           },
           {
-            errorMessage: "Could not refresh inventory. Showing the last saved values.",
+            errorMessage: "Kunne ikke oppdatere lager. Viser sist lagrede verdier.",
           }
         );
         if (!isMounted) {
@@ -123,7 +123,7 @@ export default function InventoryLog(props?: {
         lastSyncedSnapshotsRef.current = state.snapshots;
       } catch (loadError) {
         if (isMounted) {
-          setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
+          setError(loadError instanceof Error ? loadError.message : "Kunne ikke laste lager.");
         }
       } finally {
         if (isMounted) {
@@ -165,12 +165,12 @@ export default function InventoryLog(props?: {
       void runBackgroundSync(
         () => saveBunnerCurrentEntries(normalizeBunnerEntries(pendingEntries)),
         {
-          errorMessage: "Could not save inventory changes. The failed edit was reverted.",
+          errorMessage: "Kunne ikke lagre lagerendringer. Mislykket endring ble rullet tilbake.",
           onError: (saveError) => {
             setError(
               saveError instanceof Error
                 ? saveError.message
-                : "Failed to save inventory changes."
+                : "Kunne ikke lagre lagerendringer."
             );
             if (latestEntriesRef.current === pendingEntries) {
               setEntries(previousEntries);
@@ -202,12 +202,12 @@ export default function InventoryLog(props?: {
     const previousSnapshots = lastSyncedSnapshotsRef.current;
     const timeout = window.setTimeout(() => {
       void runBackgroundSync(() => saveBunnerSnapshots(pendingSnapshots), {
-        errorMessage: "Could not save the snapshot archive. The failed change was reverted.",
+        errorMessage: "Kunne ikke lagre øyeblikksbildearkivet. Endringen ble rullet tilbake.",
         onError: (saveError) => {
           setError(
             saveError instanceof Error
               ? saveError.message
-              : "Failed to save snapshot archive."
+              : "Kunne ikke lagre øyeblikksbildearkiv."
           );
           if (latestSnapshotsRef.current === pendingSnapshots) {
             setSnapshots(previousSnapshots);
@@ -295,10 +295,10 @@ export default function InventoryLog(props?: {
 
     try {
       await runBackgroundSync(() => deleteInventorySnapshot("bunner", snapshotId), {
-        errorMessage: "Could not delete the snapshot. The failed change was reverted.",
+        errorMessage: "Kunne ikke slette øyeblikksbildet. Endringen ble rullet tilbake.",
       });
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
+      setError(deleteError instanceof Error ? deleteError.message : "Kunne ikke slette øyeblikksbilde.");
       setSnapshots(previousSnapshots);
       if (selectedSource === "current") {
         setSelectedSource(snapshotId);
@@ -316,7 +316,7 @@ export default function InventoryLog(props?: {
         )}
         {loading && (
           <div className="mb-4 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            Loading the latest inventory values in the background...
+            Laster inn siste lagerverdier i bakgrunnen...
           </div>
         )}
         <div className="mb-6 flex gap-2">
@@ -326,12 +326,12 @@ export default function InventoryLog(props?: {
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
-              Save Snapshot
+              Lagre øyeblikksbilde
             </Button>
           )}
           {!readOnly && (
             <Button variant="outline" className="text-primary" onClick={() => onOpenArchive?.()}>
-              Storage area
+              Lagerområde
             </Button>
           )}
         </div>
@@ -349,7 +349,7 @@ export default function InventoryLog(props?: {
                 className="ml-auto text-red-600"
                 onClick={() => void handleDeleteSnapshot(activeSnapshot.id)}
               >
-                Delete
+                Slett
               </Button>
             )}
           </div>

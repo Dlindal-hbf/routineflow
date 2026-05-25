@@ -248,7 +248,7 @@ export default function CompensationModule({
               className="mt-4 flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
             >
               <ArrowLeft className="h-5 w-5" />
-              Back
+              Tilbake
             </button>
 
             <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-gold-muted">
@@ -256,9 +256,9 @@ export default function CompensationModule({
             </div>
 
             <div>
-              <h1 className="text-4xl font-bold tracking-tight">Compensation</h1>
+              <h1 className="text-4xl font-bold tracking-tight">Kompensasjon</h1>
               <p className="mt-1 text-2xl text-slate-500">
-                A calm daily-use notebook for customer problems and resolutions
+                En enkel arbeidsflate for kundesaker og løsninger
               </p>
             </div>
           </div>
@@ -268,7 +268,7 @@ export default function CompensationModule({
             onClick={openCreateDialog}
           >
             <Plus className="mr-3 h-6 w-6" />
-            New case
+            Ny sak
           </Button>
         </div>
       </header>
@@ -283,8 +283,8 @@ export default function CompensationModule({
         <>
         <div className="mb-6 flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2">
           {[
-            { key: "open" as CaseStatusFilter, label: "Open", count: openCases.length },
-            { key: "closed" as CaseStatusFilter, label: "Closed", count: closedCases.length },
+            { key: "open" as CaseStatusFilter, label: "Åpen", count: openCases.length },
+            { key: "closed" as CaseStatusFilter, label: "Lukket", count: closedCases.length },
           ].map((option) => (
             <button
               key={option.key}
@@ -309,7 +309,7 @@ export default function CompensationModule({
               onChange={(event) =>
                 setFilters((current) => ({ ...current, query: event.target.value }))
               }
-              placeholder="Search name, phone, or issue"
+              placeholder="Søk navn, telefon eller problem"
               className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-xl"
             />
           </div>
@@ -339,7 +339,7 @@ export default function CompensationModule({
             ) : (
               <ChevronDown className="mr-2 h-4 w-4" />
             )}
-            Advanced filters
+            Avanserte filtre
           </Button>
         </div>
 
@@ -395,14 +395,14 @@ export default function CompensationModule({
             {refreshing && (
               <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
                 <CardContent className="p-4 text-sm text-slate-500">
-                  Refreshing the latest compensation cases in the background...
+                  Oppdaterer kompensasjonssaker i bakgrunnen...
                 </CardContent>
               </Card>
             )}
             {loading && !refreshing && (
               <Card className="rounded-3xl border border-dashed border-slate-200 bg-white shadow-sm">
                 <CardContent className="p-4 text-sm text-slate-500">
-                  Loading compensation cases...
+                  Laster kompensasjonssaker...
                 </CardContent>
               </Card>
             )}
@@ -463,9 +463,9 @@ export default function CompensationModule({
       >
         <DialogContent className="max-w-md rounded-3xl border border-slate-200 bg-white shadow-xl">
           <DialogHeader>
-            <DialogTitle>Delete case?</DialogTitle>
+            <DialogTitle>Slette saken?</DialogTitle>
             <DialogDescription>
-              This case will be permanently deleted. This cannot be undone.
+              Denne saken blir slettet permanent. Dette kan ikke angres.
             </DialogDescription>
           </DialogHeader>
           <div className="mt-2 flex items-center justify-end gap-2">
@@ -477,7 +477,7 @@ export default function CompensationModule({
               }}
               disabled={deletePending}
             >
-              Cancel
+              Avbryt
             </Button>
             <Button
               variant="destructive"
@@ -485,7 +485,7 @@ export default function CompensationModule({
               onClick={() => void confirmDelete()}
               disabled={deletePending}
             >
-              {deletePending ? "Deleting..." : "Delete case"}
+              {deletePending ? "Sletter..." : "Slett sak"}
             </Button>
           </div>
         </DialogContent>

@@ -101,10 +101,10 @@ export default function CompensationCaseFormDialog({
       <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New customer case" : "Edit customer case"}
+            {mode === "create" ? "Ny kundesak" : "Rediger kundesak"}
           </DialogTitle>
           <DialogDescription>
-            Save the customer, the problem, and the resolution in one simple case.
+            Lagre kunde, problem og løsning i én enkel sak.
           </DialogDescription>
         </DialogHeader>
 
@@ -239,10 +239,10 @@ export default function CompensationCaseFormDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            Avbryt
           </Button>
           <Button onClick={onSubmit}>
-            {mode === "create" ? "Create case" : "Save changes"}
+            {mode === "create" ? "Opprett sak" : "Lagre endringer"}
           </Button>
         </DialogFooter>
       </DialogContent>
