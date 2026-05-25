@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ChevronDown,
+  ChevronUp,
   HandCoins,
   Plus,
   Search,
@@ -13,7 +15,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { AppSelect } from "@/components/ui/app-select";
 import HistoryEmptyState from "@/components/history/HistoryEmptyState";
-import CompensationArchiveView from "@/components/CompensationArchiveView";
 import CompensationCaseCard from "@/components/CompensationCaseCard";
 import CompensationCaseDetailDialog from "@/components/CompensationCaseDetailDialog";
 import CompensationCaseFormDialog from "@/components/CompensationCaseFormDialog";
@@ -49,9 +50,9 @@ import {
   filterCompensationCases,
   isCompensationEditable,
   resolveCompensationStatus,
-  selectActiveCompensationCases,
   selectArchivedCompensationCases,
   selectCompensationCasesForTab,
+  selectOpenCompensationCases,
   selectOverdueCompensationCases,
   selectReadyForClaimCompensationCases,
   sortCompensationCases,
@@ -99,8 +100,7 @@ export default function CompensationModule({
     cancelCase,
   } = useCompensationCases();
 
-  const [tab, setTab] = useState<CompensationTab>("all");
-  const [archiveViewMode, setArchiveViewMode] = useState<"list" | "calendar">("list");
+  const [tab, setTab] = useState<CompensationTab>("open");
   const [filters, setFilters] = useState<CompensationCaseFilters>({
     query: "",
     status: "all",
@@ -109,6 +109,7 @@ export default function CompensationModule({
     dateRange: "all_time",
   });
   const [sortKey, setSortKey] = useState<CompensationSortKey>("newest");
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [formValue, setFormValue] = useState(DEFAULT_COMPENSATION_FORM_VALUE);
@@ -121,14 +122,11 @@ export default function CompensationModule({
     [cases, selectedCaseId]
   );
 
-  const activeCases = useMemo(() => selectActiveCompensationCases(cases), [cases]);
+  const openCases = useMemo(() => selectOpenCompensationCases(cases), [cases]);
   const readyCases = useMemo(() => selectReadyForClaimCompensationCases(cases), [cases]);
-  const archivedCases = useMemo(() => selectArchivedCompensationCases(cases), [cases]);
+  const closedCases = useMemo(() => selectArchivedCompensationCases(cases), [cases]);
   const overdueCases = useMemo(() => selectOverdueCompensationCases(cases), [cases]);
-  const completedTodayCount = useMemo(
-    () => countCompletedCompensationCasesToday(cases),
-    [cases]
-  );
+  const completedTodayCount = useMemo(() => countCompletedCompensationCasesToday(cases), [cases]);
 
   const baseCasesForTab = useMemo(
     () => selectCompensationCasesForTab(cases, tab),
@@ -137,7 +135,7 @@ export default function CompensationModule({
 
   const visibleCases = useMemo(() => {
     const filtered = filterCompensationCases(baseCasesForTab, filters, {
-      useClosedAt: tab === "archive",
+      useClosedAt: tab === "closed" || tab === "archive",
     });
     return sortCompensationCases(filtered, sortKey);
   }, [baseCasesForTab, filters, sortKey, tab]);
@@ -247,7 +245,7 @@ export default function CompensationModule({
             <div>
               <h1 className="text-4xl font-bold tracking-tight">Compensation</h1>
               <p className="mt-1 text-2xl text-slate-500">
-                Register, track, claim, and archive customer make-good cases
+                A calm daily-use notebook for customer problems and resolutions
               </p>
             </div>
           </div>
@@ -257,7 +255,7 @@ export default function CompensationModule({
             onClick={openCreateDialog}
           >
             <Plus className="mr-3 h-6 w-6" />
-            New compensation
+            New case
           </Button>
         </div>
       </header>
@@ -275,20 +273,20 @@ export default function CompensationModule({
             <AlertTriangle className="h-5 w-5" />
             <span>
               {overdueCases.length} compensation case{overdueCases.length === 1 ? "" : "s"}{" "}
-              have expired and were moved into the archive.
+              have expired and were moved into Closed.
             </span>
           </div>
         )}
 
         <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Active cases" value={activeCases.length} />
+          <SummaryCard label="Open cases" value={openCases.length} />
           <SummaryCard
-            label="Ready for claim"
+            label="Ready"
             value={readyCases.length}
             accentClassName="border-primary"
           />
+          <SummaryCard label="Closed cases" value={closedCases.length} />
           <SummaryCard label="Completed today" value={completedTodayCount} />
-          <SummaryCard label="Archived / closed" value={archivedCases.length} />
         </div>
 
         <div className="border-b border-slate-200">
@@ -309,7 +307,7 @@ export default function CompensationModule({
           </div>
         </div>
 
-        <div className="mt-8 mb-8 grid gap-4 xl:grid-cols-[1.2fr_repeat(4,minmax(0,0.7fr))]">
+        <div className="mt-8 mb-8 grid gap-4 xl:grid-cols-[1.4fr_repeat(3,minmax(0,0.8fr))]">
           <div className="relative">
             <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
             <Input
@@ -317,7 +315,7 @@ export default function CompensationModule({
               onChange={(event) =>
                 setFilters((current) => ({ ...current, query: event.target.value }))
               }
-              placeholder="Search customer, phone, reference, or issue"
+              placeholder="Search name, phone, or issue"
               className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-xl"
             />
           </div>
@@ -352,67 +350,63 @@ export default function CompensationModule({
             renderOption={renderCompensationTypeOption}
           />
 
-          <AppSelect
-            value={filters.issueCategory}
-            onValueChange={(nextValue) =>
-              setFilters((current) => ({
-                ...current,
-                issueCategory: nextValue as CompensationCaseFilters["issueCategory"],
-              }))
-            }
-            options={compensationIssueFilterOptions}
-            size="lg"
-            triggerLabel="Issue"
-            renderValue={renderCompensationIssueValue}
-            renderOption={renderCompensationIssueOption}
-          />
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-1">
-            <AppSelect
-              value={filters.dateRange}
-              onValueChange={(nextValue) =>
-                setFilters((current) => ({
-                  ...current,
-                  dateRange: nextValue as CompensationCaseFilters["dateRange"],
-                }))
-              }
-              options={COMPENSATION_DATE_FILTER_OPTIONS}
-              size="lg"
-              triggerLabel="Date"
-            />
-
-            <AppSelect
-              value={sortKey}
-              onValueChange={(nextValue) => setSortKey(nextValue as CompensationSortKey)}
-              options={COMPENSATION_SORT_OPTIONS}
-              size="lg"
-              triggerLabel="Sort"
-            />
-          </div>
+          <Button
+            variant="outline"
+            className="h-16 rounded-2xl border-slate-200 text-base font-medium"
+            onClick={() => setShowAdvancedFilters((current) => !current)}
+          >
+            {showAdvancedFilters ? (
+              <ChevronUp className="mr-2 h-4 w-4" />
+            ) : (
+              <ChevronDown className="mr-2 h-4 w-4" />
+            )}
+            Advanced filters
+          </Button>
         </div>
 
-        {tab === "archive" && (
-          <div className="mb-6 flex items-center justify-end gap-2">
-            <Button
-              variant={archiveViewMode === "list" ? "default" : "outline"}
-              onClick={() => setArchiveViewMode("list")}
-              className="rounded-lg"
-            >
-              List view
-            </Button>
-            <Button
-              variant={archiveViewMode === "calendar" ? "default" : "outline"}
-              onClick={() => setArchiveViewMode("calendar")}
-              className="rounded-lg"
-            >
-              Calendar view
-            </Button>
-          </div>
+        {showAdvancedFilters && (
+          <Card className="mb-8 rounded-3xl border border-slate-200 bg-slate-50 shadow-sm">
+            <CardContent className="grid gap-4 p-5 md:grid-cols-3">
+              <AppSelect
+                value={filters.dateRange}
+                onValueChange={(nextValue) =>
+                  setFilters((current) => ({
+                    ...current,
+                    dateRange: nextValue as CompensationCaseFilters["dateRange"],
+                  }))
+                }
+                options={COMPENSATION_DATE_FILTER_OPTIONS}
+                size="lg"
+                triggerLabel="Date"
+              />
+
+              <AppSelect
+                value={filters.issueCategory}
+                onValueChange={(nextValue) =>
+                  setFilters((current) => ({
+                    ...current,
+                    issueCategory: nextValue as CompensationCaseFilters["issueCategory"],
+                  }))
+                }
+                options={compensationIssueFilterOptions}
+                size="lg"
+                triggerLabel="Issue"
+                renderValue={renderCompensationIssueValue}
+                renderOption={renderCompensationIssueOption}
+              />
+
+              <AppSelect
+                value={sortKey}
+                onValueChange={(nextValue) => setSortKey(nextValue as CompensationSortKey)}
+                options={COMPENSATION_SORT_OPTIONS}
+                size="lg"
+                triggerLabel="Sort"
+              />
+            </CardContent>
+          </Card>
         )}
 
-        {tab === "archive" && archiveViewMode === "calendar" ? (
-          <CompensationArchiveView cases={visibleCases} onOpen={openDetailDialog} />
-        ) : visibleCases.length === 0 ? (
+        {visibleCases.length === 0 ? (
           <HistoryEmptyState
             title="No compensation cases match these filters."
             description="Try another tab or clear a few filters to see more results."

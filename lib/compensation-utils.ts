@@ -259,10 +259,6 @@ export function getCompensationSummary(caseRecord: CompensationCase): string {
   }
 
   if (caseRecord.compensationType === "gift_card") {
-    if (caseRecord.giftCardReference && formattedValue) {
-      return `${typeLabel}: ${formattedValue} (${caseRecord.giftCardReference})`;
-    }
-
     return formattedValue ? `${typeLabel}: ${formattedValue}` : typeLabel;
   }
 
@@ -383,6 +379,16 @@ export function selectActiveCompensationCases(
   return cases.filter((caseRecord) => !isCompensationArchived(caseRecord, now));
 }
 
+export function selectOpenCompensationCases(
+  cases: CompensationCase[],
+  now: Date = new Date()
+): CompensationCase[] {
+  return cases.filter((caseRecord) => {
+    const resolvedStatus = resolveCompensationStatus(caseRecord, now);
+    return resolvedStatus !== "ready_for_claim" && !isCompensationArchived(caseRecord, now);
+  });
+}
+
 export function selectReadyForClaimCompensationCases(
   cases: CompensationCase[],
   now: Date = new Date()
@@ -442,6 +448,12 @@ export function selectCompensationCasesForTab(
   now: Date = new Date()
 ): CompensationCase[] {
   switch (tab) {
+    case "open":
+      return selectOpenCompensationCases(cases, now);
+    case "ready":
+      return selectReadyForClaimCompensationCases(cases, now);
+    case "closed":
+      return selectArchivedCompensationCases(cases, now);
     case "active":
       return selectActiveCompensationCases(cases, now);
     case "ready_for_claim":

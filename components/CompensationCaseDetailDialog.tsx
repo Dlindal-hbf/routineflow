@@ -2,12 +2,7 @@
 
 import type { ReactNode } from "react";
 import { useState } from "react";
-import {
-  Calendar,
-  FileText,
-  MessageSquare,
-  UserRound,
-} from "lucide-react";
+import { MessageSquare, Package, Phone, UserRound } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -21,14 +16,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import CompensationStatusBadge from "@/components/CompensationStatusBadge";
 import type { CompensationCase } from "@/lib/compensation-types";
-import { formatTimestamp } from "@/lib/date-utils";
+import { formatShortDate } from "@/lib/date-utils";
 import {
   getCompensationActivityLabel,
   getCompensationAssignedOwner,
-  getCompensationClosedAt,
   getCompensationIssueCategoryLabel,
+  getCompensationStatusLabel,
   getCompensationSummary,
-  getCompensationTypeLabel,
   isCompensationClaimable,
   isCompensationEditable,
   resolveCompensationStatus,
@@ -59,8 +53,8 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <h3 className="mb-3 text-lg font-semibold text-slate-900">{title}</h3>
+    <section className="space-y-3 border-t border-slate-200 pt-5">
+      <h3 className="text-base font-semibold text-slate-900">{title}</h3>
       {children}
     </section>
   );
@@ -71,14 +65,16 @@ function DetailRow({
   value,
 }: {
   label: string;
-  value?: string | null;
+  value?: ReactNode;
 }) {
+  if (!value) {
+    return null;
+  }
+
   return (
-    <div>
-      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
-        {label}
-      </div>
-      <div className="mt-1 text-sm text-slate-700">{value || "Not set"}</div>
+    <div className="space-y-1">
+      <div className="text-sm font-medium text-slate-500">{label}</div>
+      <div className="text-sm leading-6 text-slate-900">{value}</div>
     </div>
   );
 }
@@ -98,10 +94,12 @@ export default function CompensationCaseDetailDialog({
   const [archiveReason, setArchiveReason] = useState("");
   const [showCompletePanel, setShowCompletePanel] = useState(false);
   const [showCancelPanel, setShowCancelPanel] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
 
   const resetPanels = () => {
     setShowCompletePanel(false);
     setShowCancelPanel(false);
+    setShowActivity(false);
     setClaimNote("");
     setArchiveReason("");
     setFulfillmentName(currentActor);
@@ -114,9 +112,8 @@ export default function CompensationCaseDetailDialog({
   const resolvedStatus = resolveCompensationStatus(caseRecord);
   const canEdit = isCompensationEditable(caseRecord);
   const canComplete = isCompensationClaimable(caseRecord);
-  const closedAt = getCompensationClosedAt(caseRecord);
   const orderedActivity = [...caseRecord.activityLog].sort((a, b) =>
-    a.timestamp.localeCompare(b.timestamp)
+    b.timestamp.localeCompare(a.timestamp)
   );
 
   return (
@@ -129,212 +126,205 @@ export default function CompensationCaseDetailDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-3">
-            <span>{caseRecord.customerName}</span>
-            <CompensationStatusBadge status={resolvedStatus} />
-          </DialogTitle>
-          <DialogDescription>
-            {caseRecord.caseNumber} / {getCompensationSummary(caseRecord)}
+      <DialogContent className="max-h-[88vh] max-w-4xl overflow-y-auto">
+        <DialogHeader className="space-y-4">
+          <div className="space-y-3">
+            <DialogTitle className="flex flex-wrap items-center gap-3">
+              <span>{caseRecord.customerName}</span>
+              <CompensationStatusBadge status={resolvedStatus} />
+              <span className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
+                {getCompensationIssueCategoryLabel(caseRecord.issueCategory)}
+              </span>
+            </DialogTitle>
+
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
+              <span className="inline-flex items-center gap-2">
+                <Phone className="h-4 w-4" />
+                {caseRecord.customerPhone}
+              </span>
+              <span className="inline-flex items-center gap-2">
+                <UserRound className="h-4 w-4" />
+                Responsible {getCompensationAssignedOwner(caseRecord)}
+              </span>
+              <span>Created {formatShortDate(caseRecord.createdAt)}</span>
+              <span>Updated {formatShortDate(caseRecord.updatedAt)}</span>
+            </div>
+          </div>
+
+          <DialogDescription className="sr-only">
+            Customer case details
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 lg:grid-cols-[1.3fr_0.9fr]">
-          <Section title="Ownership">
+        <div className="space-y-6">
+          <Section title="Problem">
+            <p className="text-base leading-7 text-slate-800">
+              {caseRecord.issueDescription}
+            </p>
+
+            {caseRecord.relatedProductName && (
+              <DetailRow
+                label="Related product"
+                value={
+                  <span className="inline-flex items-center gap-2">
+                    <Package className="h-4 w-4 text-slate-400" />
+                    {caseRecord.relatedProductName}
+                  </span>
+                }
+              />
+            )}
+
+            {caseRecord.internalNotes && (
+              <DetailRow label="Notes" value={caseRecord.internalNotes} />
+            )}
+          </Section>
+
+          <Section title="Resolution">
             <div className="grid gap-4 sm:grid-cols-2">
-              <DetailRow label="Created by" value={caseRecord.createdBy} />
+              <DetailRow label="Action" value={getCompensationSummary(caseRecord)} />
+              <DetailRow
+                label="Status"
+                value={getCompensationStatusLabel(resolvedStatus)}
+              />
               <DetailRow
                 label="Responsible"
                 value={getCompensationAssignedOwner(caseRecord)}
               />
-              <DetailRow label="Fulfilled by" value={caseRecord.fulfilledBy} />
-              <DetailRow label="Claimed at" value={caseRecord.claimedAt ? formatTimestamp(caseRecord.claimedAt) : undefined} />
-            </div>
-          </Section>
-
-          <Section title="Customer">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailRow label="Customer name" value={caseRecord.customerName} />
-              <DetailRow label="Phone" value={caseRecord.customerPhone} />
-              <DetailRow label="Email" value={caseRecord.customerEmail} />
-              <DetailRow label="Reference" value={caseRecord.customerReference} />
-            </div>
-          </Section>
-
-          <Section title="Lifecycle">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailRow label="Created" value={formatTimestamp(caseRecord.createdAt)} />
-              <DetailRow label="Updated" value={formatTimestamp(caseRecord.updatedAt)} />
-                <DetailRow
-                  label="Available from"
-                  value={
-                    caseRecord.readyForClaimAt
-                      ? formatTimestamp(caseRecord.readyForClaimAt)
-                    : undefined
-                }
-              />
-              <DetailRow
-                label="Closed"
-                value={closedAt ? formatTimestamp(closedAt) : undefined}
-              />
-              <DetailRow
-                label="Fulfilled by"
-                value={caseRecord.fulfilledBy || caseRecord.assignedTo}
-              />
-              <DetailRow
-                label="Expiry"
-                value={
-                  caseRecord.expiryDate ? formatTimestamp(caseRecord.expiryDate) : undefined
-                }
-              />
-            </div>
-          </Section>
-
-          <Section title="Complaint">
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <FileText className="h-4 w-4" />
-                <span>{getCompensationIssueCategoryLabel(caseRecord.issueCategory)}</span>
-              </div>
-              <p className="text-sm text-slate-700">{caseRecord.issueDescription}</p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <DetailRow label="Related product" value={caseRecord.relatedProductName} />
-                <DetailRow label="Order number" value={caseRecord.relatedOrderNumber} />
-              </div>
-              <DetailRow label="Internal notes" value={caseRecord.internalNotes} />
-            </div>
-          </Section>
-
-          <Section title="Compensation">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DetailRow
-                label="Type"
-                value={getCompensationTypeLabel(caseRecord.compensationType)}
-              />
-              <DetailRow label="Summary" value={getCompensationSummary(caseRecord)} />
-              <DetailRow label="Gift card reference" value={caseRecord.giftCardReference} />
-              <DetailRow label="Replacement item" value={caseRecord.replacementItemName} />
-              <DetailRow
-                label="Fulfillment mode"
-                value={
-                  caseRecord.fulfillmentMode === "immediate"
-                    ? "Immediate"
-                    : "Later claim"
-                }
-              />
-              <DetailRow label="Decision note" value={caseRecord.decisionNote} />
-            </div>
-          </Section>
-        </div>
-
-        {(showCompletePanel || showCancelPanel) && (
-          <Section title={showCompletePanel ? "Confirm claim" : "Cancel case"}>
-            {showCompletePanel ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Fulfilled by
-                  </label>
-                  <Input
-                    value={fulfillmentName}
-                    onChange={(event) => setFulfillmentName(event.target.value)}
-                    placeholder="Staff member"
+              {caseRecord.fulfilledBy && (
+                <DetailRow label="Fulfilled by" value={caseRecord.fulfilledBy} />
+              )}
+              {caseRecord.compensationType === "gift_card" &&
+                caseRecord.giftCardReference && (
+                  <DetailRow
+                    label="Gift card reference"
+                    value={caseRecord.giftCardReference}
                   />
+                )}
+              {caseRecord.decisionNote && (
+                <DetailRow label="Notes" value={caseRecord.decisionNote} />
+              )}
+              {caseRecord.claimNote && (
+                <DetailRow label="Claim note" value={caseRecord.claimNote} />
+              )}
+            </div>
+          </Section>
+
+          {(showCompletePanel || showCancelPanel) && (
+            <section className="rounded-2xl bg-slate-50 p-5">
+              <h3 className="text-base font-semibold text-slate-900">
+                {showCompletePanel ? "Confirm claim" : "Close case"}
+              </h3>
+
+              {showCompletePanel ? (
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Fulfilled by
+                    </label>
+                    <Input
+                      value={fulfillmentName}
+                      onChange={(event) => setFulfillmentName(event.target.value)}
+                      placeholder="Staff member"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Claim note
+                    </label>
+                    <Textarea
+                      value={claimNote}
+                      onChange={(event) => setClaimNote(event.target.value)}
+                      placeholder="What was handed over to the customer?"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="md:col-span-2 flex justify-end gap-2">
+                    <Button variant="outline" onClick={resetPanels}>
+                      Cancel
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (!window.confirm("Complete this claim now?")) {
+                          return;
+                        }
+                        onComplete(caseRecord, {
+                          fulfilledBy: fulfillmentName,
+                          claimNote,
+                        });
+                        resetPanels();
+                      }}
+                    >
+                      Confirm completion
+                    </Button>
+                  </div>
                 </div>
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Claim note
-                  </label>
-                  <Textarea
-                    value={claimNote}
-                    onChange={(event) => setClaimNote(event.target.value)}
-                    placeholder="What was handed over to the customer?"
-                    rows={3}
-                  />
+              ) : (
+                <div className="mt-4 grid gap-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Reason
+                    </label>
+                    <Textarea
+                      value={archiveReason}
+                      onChange={(event) => setArchiveReason(event.target.value)}
+                      placeholder="Why is this case being closed?"
+                      rows={3}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={resetPanels}>
+                      Keep case open
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => {
+                        onCancel(caseRecord, {
+                          actor: currentActor,
+                          archiveReason,
+                        });
+                        resetPanels();
+                      }}
+                    >
+                      Confirm close
+                    </Button>
+                  </div>
                 </div>
-                <div className="md:col-span-2 flex justify-end gap-2">
-                  <Button variant="outline" onClick={resetPanels}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      if (!window.confirm("Complete this claim now?")) {
-                        return;
-                      }
-                      onComplete(caseRecord, {
-                        fulfilledBy: fulfillmentName,
-                        claimNote,
-                      });
-                      resetPanels();
-                    }}
+              )}
+            </section>
+          )}
+
+          <div className="border-t border-slate-200 pt-5">
+            <Button
+              variant="ghost"
+              className="h-auto px-0 text-sm font-medium text-slate-600 hover:bg-transparent hover:text-slate-900"
+              onClick={() => setShowActivity((current) => !current)}
+            >
+              {showActivity ? "Hide activity" : "Show activity"}
+            </Button>
+
+            {showActivity && (
+              <div className="mt-4 space-y-3">
+                {orderedActivity.map((activity) => (
+                  <div
+                    key={activity.id}
+                    className="rounded-xl bg-slate-50 px-4 py-3"
                   >
-                    Confirm completion
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid gap-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-slate-700">
-                    Cancellation reason
-                  </label>
-                  <Textarea
-                    value={archiveReason}
-                    onChange={(event) => setArchiveReason(event.target.value)}
-                    placeholder="Why is this case being cancelled?"
-                    rows={3}
-                  />
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={resetPanels}>
-                    Keep case
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    onClick={() => {
-                      onCancel(caseRecord, {
-                        actor: currentActor,
-                        archiveReason,
-                      });
-                      resetPanels();
-                    }}
-                  >
-                    Confirm cancellation
-                  </Button>
-                </div>
+                    <div className="text-sm font-medium text-slate-900">
+                      {getCompensationActivityLabel(activity)} -{" "}
+                      {formatShortDate(activity.timestamp)}
+                    </div>
+                    {activity.note && (
+                      <div className="mt-2 flex items-start gap-2 text-sm text-slate-600">
+                        <MessageSquare className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span>{activity.note}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
-          </Section>
-        )}
-
-        <Section title="Activity">
-          <div className="space-y-3">
-            {orderedActivity.map((activity) => (
-              <div
-                key={activity.id}
-                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
-              >
-                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500">
-                  <Calendar className="h-4 w-4" />
-                  <span>{formatTimestamp(activity.timestamp)}</span>
-                  <span>/</span>
-                  <UserRound className="h-4 w-4" />
-                  <span>{activity.actor}</span>
-                </div>
-                <div className="mt-2 font-medium text-slate-900">
-                  {getCompensationActivityLabel(activity)}
-                </div>
-                {activity.note && (
-                  <div className="mt-2 flex items-start gap-2 text-sm text-slate-600">
-                    <MessageSquare className="mt-0.5 h-4 w-4" />
-                    <span>{activity.note}</span>
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
-        </Section>
+        </div>
 
         <DialogFooter className="justify-between sm:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -347,7 +337,7 @@ export default function CompensationCaseDetailDialog({
               resolvedStatus === "pending" &&
               caseRecord.fulfillmentMode === "later_claim" && (
                 <Button variant="outline" onClick={() => onMarkReady(caseRecord)}>
-                  Mark ready for claim
+                  Mark ready
                 </Button>
               )}
             {canEdit && canComplete && (
@@ -369,7 +359,7 @@ export default function CompensationCaseDetailDialog({
                   setShowCancelPanel(true);
                 }}
               >
-                Cancel case
+                Close case
               </Button>
             )}
           </div>

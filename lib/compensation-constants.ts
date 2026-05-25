@@ -13,11 +13,9 @@ export const COMPENSATION_HISTORY_TIMEZONE = "Europe/Oslo";
 export const COMPENSATION_DEFAULT_CURRENCY = "NOK";
 
 export const COMPENSATION_TABS: Array<{ value: CompensationTab; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "active", label: "Active" },
-  { value: "ready_for_claim", label: "Ready for claim" },
-  { value: "completed", label: "Completed" },
-  { value: "archive", label: "Archive" },
+  { value: "open", label: "Open" },
+  { value: "ready", label: "Ready" },
+  { value: "closed", label: "Closed" },
 ];
 
 export const COMPENSATION_STATUSES: CompensationStatus[] = [

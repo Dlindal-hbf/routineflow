@@ -127,6 +127,22 @@ export function formatDate(date: Date): string {
   return formatDateKey(toDateKey(date));
 }
 
+export function formatShortDate(
+  value: string | Date,
+  locale: string = DEFAULT_LOCALE
+): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return typeof value === "string" ? value : "";
+  }
+
+  return new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  }).format(date);
+}
+
 export function formatMonthLabel(
   input: Date | DateKey,
   locale: string = DEFAULT_LOCALE
@@ -147,7 +163,13 @@ export function formatTimestamp(
     return typeof value === "string" ? value : "";
   }
 
-  return date.toLocaleString(locale);
+  return new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export function getWeekdayName(

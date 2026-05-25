@@ -1,7 +1,14 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,7 +86,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+    <section className="rounded-2xl bg-slate-50/70 p-5">
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
         <p className="mt-1 text-sm text-slate-500">{description}</p>
@@ -133,17 +140,17 @@ export default function CompensationCaseFormDialog({
       <DialogContent className="max-h-[92vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create" ? "New Compensation" : "Edit Compensation"}
+            {mode === "create" ? "New customer case" : "Edit customer case"}
           </DialogTitle>
           <DialogDescription>
-            Register customer details, the issue, and how the case should be handled.
+            Save the customer, the problem, and the resolution in one simple case.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           <Section
             title="Customer"
-            description="Keep claim handling quick by saving the best lookup details."
+            description="Only collect the details staff need to find the case again."
           >
             <Field label="Customer name">
               <Input
@@ -159,26 +166,11 @@ export default function CompensationCaseFormDialog({
                 placeholder="Phone number"
               />
             </Field>
-            <Field label="Email">
-              <Input
-                value={value.customerEmail}
-                onChange={(event) => updateField("customerEmail", event.target.value)}
-                placeholder="Email (optional)"
-                type="email"
-              />
-            </Field>
-            <Field label="Order / customer reference">
-              <Input
-                value={value.customerReference}
-                onChange={(event) => updateField("customerReference", event.target.value)}
-                placeholder="Reference number"
-              />
-            </Field>
           </Section>
 
           <Section
-            title="Complaint"
-            description="Capture the issue clearly so the next shift can understand it at a glance."
+            title="Problem"
+            description="Capture what happened clearly so the next shift can understand it fast."
           >
             <Field label="Issue category">
               <AppSelect
@@ -191,11 +183,11 @@ export default function CompensationCaseFormDialog({
                 renderOption={renderCompensationIssueOption}
               />
             </Field>
-            <Field label="Related order number">
+            <Field label="Responsible">
               <Input
-                value={value.relatedOrderNumber}
-                onChange={(event) => updateField("relatedOrderNumber", event.target.value)}
-                placeholder="Order number"
+                value={value.assignedTo}
+                onChange={(event) => updateField("assignedTo", event.target.value)}
+                placeholder="Defaults to creator"
               />
             </Field>
             <Field label="Issue description" className="md:col-span-2">
@@ -213,20 +205,13 @@ export default function CompensationCaseFormDialog({
                 placeholder="Product name"
               />
             </Field>
-            <Field label="Assigned to">
-              <Input
-                value={value.assignedTo}
-                onChange={(event) => updateField("assignedTo", event.target.value)}
-                placeholder="Defaults to creator"
-              />
-            </Field>
           </Section>
 
           <Section
-            title="Compensation"
-            description="Only show the fields that matter for the chosen resolution."
+            title="Resolution"
+            description="Only show the fields that matter for the action you are giving the customer."
           >
-            <Field label="Compensation type">
+            <Field label="Action type">
               <AppSelect
                 value={value.compensationType}
                 onValueChange={(nextValue) =>
@@ -239,7 +224,7 @@ export default function CompensationCaseFormDialog({
             </Field>
 
             {showsValueField && (
-              <Field label="Compensation value (NOK)">
+              <Field label="Value (NOK)">
                 <Input
                   value={value.compensationValue}
                   onChange={(event) => updateField("compensationValue", event.target.value)}
@@ -250,7 +235,7 @@ export default function CompensationCaseFormDialog({
             )}
 
             {value.compensationType === "replacement_product" && (
-              <Field label="Replacement item name">
+              <Field label="Replacement item">
                 <Input
                   value={value.replacementItemName}
                   onChange={(event) => updateField("replacementItemName", event.target.value)}
@@ -269,18 +254,18 @@ export default function CompensationCaseFormDialog({
               </Field>
             )}
 
-            <Field label="Decision note" className="md:col-span-2">
+            <Field label="Resolution note" className="md:col-span-2">
               <Textarea
                 value={value.decisionNote}
                 onChange={(event) => updateField("decisionNote", event.target.value)}
-                placeholder="Why this compensation was chosen"
+                placeholder="What did you decide to do?"
                 rows={3}
               />
             </Field>
           </Section>
 
           <Section
-            title="Fulfillment"
+            title="Claim timing"
             description="Support both immediate handling and later customer claims."
           >
             <Field label="Fulfillment mode">
@@ -335,11 +320,8 @@ export default function CompensationCaseFormDialog({
             )}
           </Section>
 
-          <Section
-            title="Notes"
-            description="Internal notes stay with the case and are visible in the detail view."
-          >
-            <Field label="Internal notes" className="md:col-span-2">
+          <Section title="Notes" description="Short team notes stay with the case.">
+            <Field label="Notes" className="md:col-span-2">
               <Textarea
                 value={value.internalNotes}
                 onChange={(event) => updateField("internalNotes", event.target.value)}

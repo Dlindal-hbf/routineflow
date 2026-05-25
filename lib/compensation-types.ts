@@ -35,6 +35,9 @@ export type CompensationActivityType =
   | "expired";
 
 export type CompensationTab =
+  | "open"
+  | "ready"
+  | "closed"
   | "all"
   | "active"
   | "ready_for_claim"

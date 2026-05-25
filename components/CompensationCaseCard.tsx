@@ -1,18 +1,11 @@
 "use client";
 
-import {
-  Calendar,
-  CheckCircle2,
-  ChevronRight,
-  Clock3,
-  PenLine,
-  UserRound,
-} from "lucide-react";
+import { CheckCircle2, CircleDot, PenLine, Phone, UserRound } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import CompensationStatusBadge from "@/components/CompensationStatusBadge";
 import type { CompensationCase } from "@/lib/compensation-types";
-import { formatTimestamp } from "@/lib/date-utils";
+import { formatShortDate } from "@/lib/date-utils";
 import {
   getCompensationAssignedOwner,
   getCompensationIssueCategoryLabel,
@@ -48,63 +41,43 @@ export default function CompensationCaseCard({
             onClick={() => onOpen(caseRecord)}
             className="flex-1 text-left"
           >
-            <div className="mb-3 flex flex-wrap items-center gap-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
               <CompensationStatusBadge status={resolvedStatus} />
-              <span className="text-sm font-medium text-slate-500">
-                {caseRecord.caseNumber}
-              </span>
-              <span className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-sm text-primary">
+              <span className="rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-sm font-medium text-primary">
                 {getCompensationIssueCategoryLabel(caseRecord.issueCategory)}
               </span>
             </div>
 
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-2xl font-semibold text-slate-900">
-                  {caseRecord.customerName}
-                </h3>
-                <p className="mt-2 line-clamp-2 text-lg text-slate-600">
-                  {caseRecord.issueDescription}
-                </p>
-                <p className="mt-3 text-base font-medium text-slate-800">
-                  {getCompensationSummary(caseRecord)}
-                </p>
+            <div className="space-y-2">
+              <h3 className="text-2xl font-semibold text-slate-900">
+                {caseRecord.customerName}
+              </h3>
+
+              <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500">
+                <span className="inline-flex items-center gap-2">
+                  <Phone className="h-4 w-4" />
+                  {caseRecord.customerPhone}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <UserRound className="h-4 w-4" />
+                  {getCompensationAssignedOwner(caseRecord)}
+                </span>
+                <span>Created {formatShortDate(caseRecord.createdAt)}</span>
               </div>
-              <ChevronRight className="mt-1 hidden h-6 w-6 text-slate-400 lg:block" />
+
+              <p className="line-clamp-1 text-base text-slate-600">
+                {caseRecord.issueDescription}
+              </p>
+
+              <p className="inline-flex max-w-full items-center gap-2 text-sm font-medium text-slate-800">
+                <CircleDot className="h-4 w-4 shrink-0 text-primary" />
+                <span className="line-clamp-1">{getCompensationSummary(caseRecord)}</span>
+              </p>
             </div>
           </button>
 
-          <div className="min-w-0 lg:w-[290px]">
-            <div className="grid gap-3 text-sm text-slate-500">
-              <div className="flex items-center gap-2">
-                <UserRound className="h-4 w-4" />
-                <span>{caseRecord.customerPhone}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                <span>Created {formatTimestamp(caseRecord.createdAt)}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Clock3 className="h-4 w-4" />
-                <span>
-                  {caseRecord.readyForClaimAt
-                    ? `Available ${formatTimestamp(caseRecord.readyForClaimAt)}`
-                    : `Updated ${formatTimestamp(caseRecord.updatedAt)}`}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <UserRound className="h-4 w-4" />
-                <span>Responsible {getCompensationAssignedOwner(caseRecord)}</span>
-              </div>
-              {caseRecord.fulfilledBy && (
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4" />
-                  <span>Fulfilled by {caseRecord.fulfilledBy}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex flex-wrap gap-2">
+          <div className="min-w-0 lg:w-auto">
+            <div className="mt-2 flex flex-wrap gap-2 lg:mt-0">
               {onEdit && (
                 <Button
                   variant="outline"
@@ -137,15 +110,6 @@ export default function CompensationCaseCard({
                   Claim
                 </Button>
               )}
-
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onOpen(caseRecord)}
-                className="rounded-lg"
-              >
-                View
-              </Button>
             </div>
           </div>
         </div>
