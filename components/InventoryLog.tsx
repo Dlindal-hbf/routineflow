@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -5,59 +7,28 @@ import { Button } from "@/components/ui/button";
 import { AppSelect } from "@/components/ui/app-select";
 import { Badge } from "@/components/ui/badge";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
-
-export type Category = "Stor" | "Medium" | "Liten" | "Glutenfri" | "Tynn";
-export type Metric =
-  | "fra igår"
-  | "bakt idag"
-  | "klar for idag"
-  | "sum solgt"
-  | "teoretisk igjen"
-  | "feillaget"
-  | "ikke hentet"
-  | "tørr/ødelagt"
-  | "gitt ut feil"
-  | "forhåndsbestilt"
-  | "avvik"
-  | "totalt på kjøl";
-
-const categories: Category[] = [
-  "Stor",
-  "Medium",
-  "Liten",
-  "Glutenfri",
-  "Tynn",
-];
-const metrics: Metric[] = [
-  "fra igår",
-  "bakt idag",
-  "klar for idag",
-  "sum solgt",
-  "teoretisk igjen",
-  "feillaget",
-  "ikke hentet",
-  "tørr/ødelagt",
-  "gitt ut feil",
-  "forhåndsbestilt",
-  "avvik",
-  "totalt på kjøl",
-];
-
-const days = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-];
+import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
+import {
+  BUNNER_CATEGORIES,
+  BUNNER_METRICS,
+  INVENTORY_DAYS,
+  createEmptyBunnerWeek,
+  deleteInventorySnapshot,
+  fetchBunnerInventoryState,
+  getCachedBunnerInventoryState,
+  normalizeBunnerEntries,
+  saveBunnerCurrentEntries,
+  saveBunnerSnapshots,
+  type BunnerCategory as Category,
+  type BunnerInventoryData as InventoryData,
+  type BunnerInventorySnapshot as InventorySnapshot,
+  type BunnerMetric as Metric,
+} from "@/src/services/inventoryService";
 
 function getTodayName(): string {
-  const day = new Date().getDay(); // 0 = Sunday, 1 = Monday, ...
-  // convert to index in days array where Monday=0
-  const idx = (day + 6) % 7;
-  return days[idx];
+  const day = new Date().getDay();
+  const index = (day + 6) % 7;
+  return INVENTORY_DAYS[index];
 }
 
 function formatSnapshotName(date: Date, includePrefix = false): string {
@@ -65,7 +36,6 @@ function formatSnapshotName(date: Date, includePrefix = false): string {
   return includePrefix ? `Inventory ${baseName}` : baseName;
 }
 
-// metrics that should be grouped as "Endringer" for clarity
 const changeMetrics: Metric[] = [
   "feillaget",
   "ikke hentet",
@@ -74,234 +44,167 @@ const changeMetrics: Metric[] = [
   "forhåndsbestilt",
 ];
 
-const CURRENT_LOG_STORAGE_KEY = "inventoryEntries.v1";
-const SNAPSHOTS_STORAGE_KEY = "inventorySnapshots.v1";
-
-type InventoryData = Record<string, Record<Category, Record<Metric, string>>>;
-
-type InventorySnapshot = {
-  id: string;
-  name: string;
-  createdAt: string;
-  entries: InventoryData;
-};
-
-// helper to create empty structure for a day
-function createEmptyData(): Record<Category, Record<Metric, string>> {
-  const data: any = {};
-  categories.forEach((cat) => {
-    data[cat] = {};
-    metrics.forEach((m) => {
-      data[cat][m] = "";
-    });
-  });
-  return data;
-}
-
-function createEmptyWeek(): InventoryData {
-  const init: InventoryData = {};
-  days.forEach((d) => {
-    init[d] = createEmptyData();
-  });
-  return init;
-}
-
-function normalizeEntries(raw: unknown): InventoryData {
-  const parsed = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-  const fullEntries = createEmptyWeek();
-
-  days.forEach((d) => {
-    const dayData = (parsed[d] as Record<string, unknown>) || {};
-    categories.forEach((cat) => {
-      const catData = (dayData[cat] as Record<string, unknown>) || {};
-      metrics.forEach((m) => {
-        fullEntries[d][cat][m] = typeof catData[m] === "string" ? catData[m] : "";
-      });
-    });
-  });
-
-  return fullEntries;
-}
-
 function getSnapshotId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
+
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?: boolean; onOpenArchive?: () => void; currentDayIndex?: number}) {
+export type { Category, Metric };
+
+export default function InventoryLog(props?: {
+  viewSnapshotId?: string;
+  readOnly?: boolean;
+  onOpenArchive?: () => void;
+  currentDayIndex?: number;
+}) {
   const { viewSnapshotId, readOnly, onOpenArchive, currentDayIndex } = props || {};
+  const cachedState = getCachedBunnerInventoryState();
+  const hasCachedState = Boolean(cachedState);
   const [selectedDay, setSelectedDay] = useState(getTodayName());
-  const [selectedSource, setSelectedSource] = useState<string>(
-    viewSnapshotId || "current"
-  );
+  const [selectedSource, setSelectedSource] = useState(viewSnapshotId || "current");
+  const [entries, setEntries] = useState<InventoryData>(cachedState?.entries ?? createEmptyBunnerWeek);
+  const [snapshots, setSnapshots] = useState<InventorySnapshot[]>(cachedState?.snapshots ?? []);
+  const [loading, setLoading] = useState(!hasCachedState);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [hydrated, setHydrated] = useState(hasCachedState);
 
-  // initialize entries and snapshots directly from localStorage to avoid
-  // overwriting existing data with empty state on first render. this also
-  // keeps values in sync when the component mounts multiple times (e.g. when
-  // switching between bunner/ost or opening a second tab).
-  const [entries, setEntries] = useState<InventoryData>(() => {
-    const stored = localStorage.getItem(CURRENT_LOG_STORAGE_KEY);
-    if (stored) {
-      try {
-        return normalizeEntries(JSON.parse(stored));
-      } catch {
-        // ignore parse errors and fall through to empty week
-      }
-    }
-    return createEmptyWeek();
-  });
+  useEffect(() => {
+    let isMounted = true;
 
-  const [snapshots, setSnapshots] = useState<InventorySnapshot[]>(() => {
-    const stored = localStorage.getItem(SNAPSHOTS_STORAGE_KEY);
-    if (stored) {
+    const load = async () => {
       try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed
-            .filter((snapshot) => snapshot && typeof snapshot === "object")
-            .map((snapshot) => {
-              const cast = snapshot as Partial<InventorySnapshot>;
-              const fallbackDate = new Date(cast.createdAt || Date.now());
-              const fallbackName = formatSnapshotName(fallbackDate, true);
-              return {
-                id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
-                name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
-                createdAt:
-                  typeof cast.createdAt === "string" ? cast.createdAt : new Date().toISOString(),
-                entries: normalizeEntries(cast.entries),
-              } as InventorySnapshot;
-            })
-            .sort(
-              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-          return normalized;
+        setLoading(!hasCachedState);
+        setRefreshing(hasCachedState);
+        setError(null);
+        await ensureLegacyBusinessDataMigrated();
+        const state = await fetchBunnerInventoryState();
+        if (!isMounted) {
+          return;
         }
-      } catch {
-        // ignore parse errors
-      }
-    }
-    return [];
-  });
 
-  // sync storage when our in-memory state changes
-  useEffect(() => {
-    try {
-      localStorage.setItem(CURRENT_LOG_STORAGE_KEY, JSON.stringify(entries));
-    } catch {}
-  }, [entries]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SNAPSHOTS_STORAGE_KEY, JSON.stringify(snapshots));
-    } catch {}
-  }, [snapshots]);
-
-  // listen for cross-tab changes so another window can update us
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === CURRENT_LOG_STORAGE_KEY && e.newValue != null) {
-        try {
-          setEntries(normalizeEntries(JSON.parse(e.newValue)));
-        } catch {}
-      }
-      if (e.key === SNAPSHOTS_STORAGE_KEY && e.newValue != null) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) {
-            const normalized = parsed
-              .filter((snapshot) => snapshot && typeof snapshot === "object")
-              .map((snapshot) => {
-                const cast = snapshot as Partial<InventorySnapshot>;
-                const fallbackDate = new Date(cast.createdAt || Date.now());
-                const fallbackName = formatSnapshotName(fallbackDate, true);
-                return {
-                  id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
-                  name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
-                  createdAt:
-                    typeof cast.createdAt === "string" ? cast.createdAt : new Date().toISOString(),
-                  entries: normalizeEntries(cast.entries),
-                } as InventorySnapshot;
-              })
-              .sort(
-                (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-              );
-            setSnapshots(normalized);
-          }
-        } catch {}
+        setEntries(state.entries);
+        setSnapshots(state.snapshots);
+        setHydrated(true);
+      } catch (loadError) {
+        if (isMounted) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load inventory.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
 
+    void load();
 
-  // if parent provides a currentDayIndex, whenever that value changes update selection
+    return () => {
+      isMounted = false;
+    };
+  }, [hasCachedState]);
+
+  useEffect(() => {
+    setSelectedSource(viewSnapshotId || "current");
+  }, [viewSnapshotId]);
+
   useEffect(() => {
     if (typeof currentDayIndex === "number") {
-      const idx = (currentDayIndex + 6) % 7;
-      const dayName = days[idx];
-      setSelectedDay(dayName);
+      const index = (currentDayIndex + 6) % 7;
+      setSelectedDay(INVENTORY_DAYS[index]);
     }
   }, [currentDayIndex]);
 
-  const updateCell = (
-    day: string,
-    cat: Category,
-    metric: Metric,
-    value: string
-  ) => {
-    setEntries((prev) => {
-      const dayData = prev[day] || createEmptyData();
-      const catData = dayData[cat] || ({} as Record<Metric, string>);
-      return {
-        ...prev,
-        [day]: {
-          ...dayData,
-          [cat]: {
-            ...catData,
-            [metric]: value,
-          },
+  useEffect(() => {
+    if (!hydrated || readOnly) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          setSaving(true);
+          await saveBunnerCurrentEntries(normalizeBunnerEntries(entries));
+        } catch (saveError) {
+          setError(saveError instanceof Error ? saveError.message : "Failed to save inventory changes.");
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [entries, hydrated, readOnly]);
+
+  useEffect(() => {
+    if (!hydrated || readOnly) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          setSaving(true);
+          await saveBunnerSnapshots(snapshots);
+        } catch (saveError) {
+          setError(saveError instanceof Error ? saveError.message : "Failed to save snapshot archive.");
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [snapshots, hydrated, readOnly]);
+
+  const updateCell = (day: string, category: Category, metric: Metric, value: string) => {
+    setEntries((current) => ({
+      ...current,
+      [day]: {
+        ...(current[day] ?? createEmptyBunnerWeek()[day]),
+        [category]: {
+          ...(current[day]?.[category] ?? {}),
+          [metric]: value,
         },
-      };
-    });
+      },
+    }));
   };
 
-  const getCellValue = (cat: Category, m: Metric): string => {
+  const getCellValue = (category: Category, metric: Metric): string => {
     const sourceEntries =
       selectedSource === "current"
         ? entries
-        : snapshots.find((snapshot) => snapshot.id === selectedSource)?.entries || entries;
+        : snapshots.find((snapshot) => snapshot.id === selectedSource)?.entries ?? entries;
 
-    if (m === "klar for idag") {
-      const fraIgar = parseFloat(sourceEntries[selectedDay][cat]["fra igår"] || "0") || 0;
-      const baktIdag = parseFloat(sourceEntries[selectedDay][cat]["bakt idag"] || "0") || 0;
-      return (fraIgar + baktIdag).toString();
-    } else if (m === "teoretisk igjen") {
-      const klarForIdag = parseFloat(getCellValue(cat, "klar for idag")) || 0;
-      const sumSolgt = parseFloat(sourceEntries[selectedDay][cat]["sum solgt"] || "0") || 0;
-      return (klarForIdag - sumSolgt).toString();
-    } else if (m === "avvik") {
-      const teoretiskIgjen = parseFloat(getCellValue(cat, "teoretisk igjen")) || 0;
-      const totaltPaKol = parseFloat(sourceEntries[selectedDay][cat]["totalt på kjøl"] || "0") || 0;
-      // sum of all change metrics (endringer) which should cancel out
-      const changes = changeMetrics.reduce((sum, cm) => {
-        const v = parseFloat(sourceEntries[selectedDay][cat][cm] || "0") || 0;
-        return sum + v;
-      }, 0);
-      const diff = totaltPaKol + changes - teoretiskIgjen;
-      return diff === 0 ? "0" : (diff > 0 ? "+" : "") + diff.toString();
+    if (metric === "klar for idag") {
+      const fromYesterday = parseFloat(sourceEntries[selectedDay][category]["fra igår"] || "0") || 0;
+      const bakedToday = parseFloat(sourceEntries[selectedDay][category]["bakt idag"] || "0") || 0;
+      return String(fromYesterday + bakedToday);
     }
-    return sourceEntries[selectedDay][cat][m] || "";
-  };
 
-  const isComputed = (m: Metric): boolean => {
-    return m === "klar for idag" || m === "teoretisk igjen" || m === "avvik";
-  };
+    if (metric === "teoretisk igjen") {
+      const readyForToday = parseFloat(getCellValue(category, "klar for idag")) || 0;
+      const sold = parseFloat(sourceEntries[selectedDay][category]["sum solgt"] || "0") || 0;
+      return String(readyForToday - sold);
+    }
 
-  const isChangeMetric = (m: Metric): boolean => {
-    return changeMetrics.includes(m);
+    if (metric === "avvik") {
+      const theoreticalLeft = parseFloat(getCellValue(category, "teoretisk igjen")) || 0;
+      const totalOnCold = parseFloat(sourceEntries[selectedDay][category]["totalt på kjøl"] || "0") || 0;
+      const changes = changeMetrics.reduce((sum, changeMetric) => {
+        const value = parseFloat(sourceEntries[selectedDay][category][changeMetric] || "0") || 0;
+        return sum + value;
+      }, 0);
+      const difference = totalOnCold + changes - theoreticalLeft;
+      return difference === 0 ? "0" : `${difference > 0 ? "+" : ""}${difference}`;
+    }
+
+    return sourceEntries[selectedDay][category][metric] || "";
   };
 
   const viewingSnapshot = readOnly || selectedSource !== "current";
@@ -309,24 +212,70 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
 
   const saveSnapshot = () => {
     const now = new Date();
-    const iso = now.toISOString();
-    const name = formatSnapshotName(now);
     const snapshot: InventorySnapshot = {
       id: getSnapshotId(),
-      name,
-      createdAt: iso,
+      name: formatSnapshotName(now),
+      createdAt: now.toISOString(),
       entries: JSON.parse(JSON.stringify(entries)) as InventoryData,
     };
-    setSnapshots((prev) => [snapshot, ...prev]);
+
+    setSnapshots((current) => [snapshot, ...current]);
     setSelectedSource(snapshot.id);
   };
 
-  const deleteSnapshot = (snapshotId: string) => {
-    setSnapshots((prev) => prev.filter((snapshot) => snapshot.id !== snapshotId));
-    if (selectedSource === snapshotId) {
-      setSelectedSource("current");
+  const handleDeleteSnapshot = async (snapshotId: string) => {
+    try {
+      await deleteInventorySnapshot("bunner", snapshotId);
+      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+      if (selectedSource === snapshotId) {
+        setSelectedSource("current");
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
     }
   };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-slate-500">Loading inventory...</CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <p className="text-red-600">{error}</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setHydrated(false);
+              setLoading(true);
+              setError(null);
+              void (async () => {
+                try {
+                  const state = await fetchBunnerInventoryState();
+                  setEntries(state.entries);
+                  setSnapshots(state.snapshots);
+                  setHydrated(true);
+                } catch (retryError) {
+                  setError(
+                    retryError instanceof Error ? retryError.message : "Failed to reload inventory."
+                  );
+                } finally {
+                  setLoading(false);
+                }
+              })();
+            }}
+          >
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="overflow-auto">
@@ -334,7 +283,7 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
-              className="bg-primary hover:bg-primary/90 text-white"
+              className="bg-primary text-white hover:bg-primary/90"
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
@@ -342,18 +291,15 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
             </Button>
           )}
           {!readOnly && (
-            <Button
-              variant="outline"
-              className="text-primary"
-              onClick={() => {
-                if (onOpenArchive) onOpenArchive();
-              else console.warn("onOpenArchive not provided");
-              }}
-            >
+            <Button variant="outline" className="text-primary" onClick={() => onOpenArchive?.()}>
               Storage area
             </Button>
           )}
-        </div>
+        {saving && <span className="self-center text-sm text-slate-500">Saving...</span>}
+        {refreshing && !loading && (
+          <span className="self-center text-sm text-slate-500">Refreshing...</span>
+        )}
+      </div>
 
         {viewingSnapshot && activeSnapshot && (
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -361,15 +307,25 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
             <span className="text-sm text-slate-600">
               {activeSnapshot.name} - {formatTimestamp(activeSnapshot.createdAt)}
             </span>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto text-red-600"
+                onClick={() => void handleDeleteSnapshot(activeSnapshot.id)}
+              >
+                Delete
+              </Button>
+            )}
           </div>
         )}
 
-        <div className="flex items-center gap-4 mb-6">
+        <div className="mb-6 flex items-center gap-4">
           <span className="font-medium">Dag:</span>
           <AppSelect
             value={selectedDay}
             onValueChange={(nextValue) => setSelectedDay(nextValue)}
-            options={days.map((day) => ({ value: day, label: day }))}
+            options={INVENTORY_DAYS.map((day) => ({ value: day, label: day }))}
             placeholder="Velg dag"
             size="sm"
             className="w-[160px]"
@@ -380,73 +336,70 @@ export default function InventoryLog(props?: {viewSnapshotId?: string; readOnly?
           <table className="table">
             <thead>
               <tr>
-                <th
-                  className="border px-2 py-1 bg-slate-100 sticky left-0"
-                  rowSpan={2}
-                >
+                <th className="sticky left-0 border bg-slate-100 px-2 py-1" rowSpan={2}>
                   Bunner
                 </th>
-                {/* group headers: before-change, change group, after-change */}
                 {(() => {
-                  const beforeCount = metrics.findIndex((m) => isChangeMetric(m));
+                  const beforeCount = BUNNER_METRICS.findIndex((metric) =>
+                    changeMetrics.includes(metric)
+                  );
                   const changeCount = changeMetrics.length;
-                  const afterCount = metrics.length - beforeCount - changeCount;
+                  const afterCount = BUNNER_METRICS.length - beforeCount - changeCount;
+
                   return (
                     <>
-                      <th
-                        className="border px-2 py-1 bg-slate-100"
-                        colSpan={beforeCount}
-                      />
-                      <th
-                        className="border px-2 py-1 bg-slate-100 text-center"
-                        colSpan={changeCount}
-                      >
+                      <th className="border bg-slate-100 px-2 py-1" colSpan={beforeCount} />
+                      <th className="border bg-slate-100 px-2 py-1 text-center" colSpan={changeCount}>
                         Endringer
                       </th>
-                      <th
-                        className="border px-2 py-1 bg-slate-100"
-                        colSpan={afterCount}
-                      />
+                      <th className="border bg-slate-100 px-2 py-1" colSpan={afterCount} />
                     </>
                   );
                 })()}
               </tr>
               <tr>
-                {metrics.map((m) => (
+                {BUNNER_METRICS.map((metric) => (
                   <th
-                    key={m}
+                    key={metric}
                     className={`border px-2 py-1 text-left ${
-                      isChangeMetric(m) ? "bg-accent-gold-muted" : ""
+                      changeMetrics.includes(metric) ? "bg-accent-gold-muted" : ""
                     }`}
                   >
-                    {m}
+                    {metric}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {categories.map((cat) => (
-                <tr key={cat}>
-                  <td className="border px-2 py-1 bg-slate-50 font-medium">
-                    {cat}
-                  </td>
-                  {metrics.map((m) => (
-                    <td
-                      key={m}
-                      className={`border px-1 py-1 ${
-                        isChangeMetric(m) ? "bg-accent-gold-muted" : ""
-                      }`}
-                    >
-                      <Input
-                        value={getCellValue(cat, m)}
-                        onChange={(e) => updateCell(selectedDay, cat, m, e.target.value)}
-                        className={`w-full h-8 p-1 text-sm ${
-                          isComputed(m) || viewingSnapshot ? "bg-gray-100" : ""
+              {BUNNER_CATEGORIES.map((category) => (
+                <tr key={category}>
+                  <td className="border bg-slate-50 px-2 py-1 font-medium">{category}</td>
+                  {BUNNER_METRICS.map((metric) => {
+                    const computed =
+                      metric === "klar for idag" ||
+                      metric === "teoretisk igjen" ||
+                      metric === "avvik";
+
+                    return (
+                      <td
+                        key={metric}
+                        className={`border px-1 py-1 ${
+                          changeMetrics.includes(metric) ? "bg-accent-gold-muted" : ""
                         }`}
-                        readOnly={isComputed(m) || viewingSnapshot}
-                      />
-                    </td>
-                  ))}
+                      >
+                        <Input
+                          value={getCellValue(category, metric)}
+                          onChange={(event) =>
+                            updateCell(selectedDay, category, metric, event.target.value)
+                          }
+                          className={`h-8 w-full p-1 text-sm ${
+                            computed || viewingSnapshot ? "bg-gray-100" : ""
+                          }`}
+                          readOnly={computed || viewingSnapshot}
+                        />
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

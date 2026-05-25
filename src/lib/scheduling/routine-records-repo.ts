@@ -1,12 +1,14 @@
 import {
   DEFAULT_TIMEZONE,
-  getLegacyTaskListsWithLiveState,
   LegacyTask,
   LegacyTaskList,
-  saveLegacyTaskListsToRoutineStore,
 } from "@/src/lib/scheduling/browser-reset-store";
 import { RecordMetadata, RecordOrigin, RoutineFrequency } from "@/src/lib/scheduling/reset-types";
 import { RoutineTemplateDefinition } from "@/src/lib/scheduling/routine-templates";
+import {
+  fetchTaskListRecords as fetchTaskListRecordsFromService,
+  saveTaskListRecords as saveTaskListRecordsToService,
+} from "@/src/services/taskService";
 
 export type ImportContext = {
   createdBy?: string;
@@ -115,12 +117,12 @@ function toMetadata(
   };
 }
 
-export function loadTaskListRecords(): LegacyTaskList[] {
-  return getLegacyTaskListsWithLiveState();
+export async function loadTaskListRecords(): Promise<LegacyTaskList[]> {
+  return fetchTaskListRecordsFromService();
 }
 
-export function saveTaskListRecords(lists: LegacyTaskList[]): void {
-  saveLegacyTaskListsToRoutineStore(lists);
+export async function saveTaskListRecords(lists: LegacyTaskList[]): Promise<void> {
+  await saveTaskListRecordsToService(lists);
 }
 
 function normalizeImportedTask(
@@ -198,11 +200,11 @@ function normalizeImportedList(
   };
 }
 
-export function importTaskListRecords(
+export async function importTaskListRecords(
   currentLists: LegacyTaskList[],
   payload: unknown,
   context?: ImportContext
-): LegacyTaskList[] {
+): Promise<LegacyTaskList[]> {
   const rawLists = Array.isArray(payload)
     ? payload
     : isRecord(payload) && Array.isArray(payload.lists)
@@ -227,7 +229,7 @@ export function importTaskListRecords(
   }
 
   const merged = [...currentLists, ...importedLists];
-  saveTaskListRecords(merged);
+  await saveTaskListRecords(merged);
   return merged;
 }
 
@@ -241,12 +243,12 @@ function toTemplateSlug(value: string): string {
   return slug || "template";
 }
 
-export function importRoutineTemplateRecords(
+export async function importRoutineTemplateRecords(
   currentLists: LegacyTaskList[],
   template: RoutineTemplateDefinition,
   templateIndex: number,
   context?: ImportContext
-): LegacyTaskList[] {
+): Promise<LegacyTaskList[]> {
   const templateSlug = `${toTemplateSlug(template.name)}-${templateIndex + 1}`;
 
   const payload = [

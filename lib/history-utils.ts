@@ -1,24 +1,17 @@
 import {
-  formatDate,
   getDateKeyFromTimestamp,
   getTodayDateKey,
-  getWeekdayName,
   isDateKey,
 } from "@/lib/date-utils";
 import type { DateKey } from "@/types/calendar";
 import type {
   ActivityHistoryEntry,
-  SnapshotArchiveEntry,
 } from "@/lib/history-types";
 
 export const HISTORY_TIMEZONE = "Europe/Oslo";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function createSnapshotFallbackName(date: Date): string {
-  return `Snapshot ${formatDate(date)} (${getWeekdayName(date, { locale: "no-NO" })})`;
 }
 
 export function createActivityHistoryEntry(
@@ -67,34 +60,6 @@ export function normalizeActivityHistoryEntry(
     category: typeof value.category === "string" ? value.category : "Other",
     routine: typeof value.routine === "string" ? value.routine : undefined,
   };
-}
-
-export function readActivityHistoryEntries(
-  storageKey = "history",
-  timeZone: string = HISTORY_TIMEZONE
-): ActivityHistoryEntry[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const stored = localStorage.getItem(storageKey);
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.flatMap((entry) => {
-      const normalized = normalizeActivityHistoryEntry(entry, timeZone);
-      return normalized ? [normalized] : [];
-    });
-  } catch {
-    return [];
-  }
 }
 
 export function groupItemsByDayKey<T extends { dayKey: DateKey }>(
@@ -158,102 +123,4 @@ export function groupActivityHistoryEntries(entries: ActivityHistoryEntry[]) {
   });
 
   return result;
-}
-
-export function readSnapshotArchiveEntries(
-  storageKey: string,
-  timeZone: string = HISTORY_TIMEZONE
-): SnapshotArchiveEntry[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const stored = localStorage.getItem(storageKey);
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as unknown;
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed
-      .flatMap((entry) => {
-        if (!isRecord(entry)) {
-          return [];
-        }
-
-        const createdAt =
-          typeof entry.createdAt === "string"
-            ? entry.createdAt
-            : new Date().toISOString();
-        const parsedDate = new Date(createdAt);
-        const fallbackDate = Number.isNaN(parsedDate.getTime())
-          ? new Date()
-          : parsedDate;
-
-        return [
-          {
-            id:
-              typeof entry.id === "string" && entry.id.trim()
-                ? entry.id
-                : `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            name:
-              typeof entry.name === "string" && entry.name.trim()
-                ? entry.name
-                : createSnapshotFallbackName(fallbackDate),
-            createdAt,
-            dayKey:
-              getDateKeyFromTimestamp(createdAt, { timeZone }) ??
-              getTodayDateKey(timeZone),
-          },
-        ];
-      })
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  } catch {
-    return [];
-  }
-}
-
-export function deleteSnapshotArchiveEntry(
-  storageKey: string,
-  snapshotId: string
-): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const stored = localStorage.getItem(storageKey);
-  if (!stored) {
-    return;
-  }
-
-  try {
-    const parsed = JSON.parse(stored) as unknown;
-    if (!Array.isArray(parsed)) {
-      return;
-    }
-
-    const filtered = parsed.filter((entry) => {
-      if (!isRecord(entry)) {
-        return true;
-      }
-
-      return entry.id !== snapshotId;
-    });
-
-    localStorage.setItem(storageKey, JSON.stringify(filtered));
-  } catch {
-    // ignore malformed storage
-  }
-}
-
-export function findSnapshotArchiveEntry(
-  storageKey: string,
-  snapshotId: string
-): SnapshotArchiveEntry | null {
-  const snapshots = readSnapshotArchiveEntries(storageKey);
-  return snapshots.find((snapshot) => snapshot.id === snapshotId) ?? null;
 }

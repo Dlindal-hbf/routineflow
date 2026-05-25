@@ -87,8 +87,17 @@ export default function CompensationModule({
   currentActor,
   onHistoryEntry,
 }: CompensationModuleProps) {
-  const { cases, createCase, updateCase, markReadyForClaim, completeCase, cancelCase } =
-    useCompensationCases();
+  const {
+    cases,
+    loading,
+    refreshing,
+    error,
+    createCase,
+    updateCase,
+    markReadyForClaim,
+    completeCase,
+    cancelCase,
+  } = useCompensationCases();
 
   const [tab, setTab] = useState<CompensationTab>("all");
   const [archiveViewMode, setArchiveViewMode] = useState<"list" | "calendar">("list");
@@ -161,7 +170,7 @@ export default function CompensationModule({
     setDetailOpen(true);
   };
 
-  const submitForm = () => {
+  const submitForm = async () => {
     if (!formValue.customerName.trim() || !formValue.customerPhone.trim()) {
       window.alert("Customer name and phone number are required.");
       return;
@@ -173,13 +182,13 @@ export default function CompensationModule({
     }
 
     if (formMode === "create") {
-      const result = createCase(formValue, currentActor);
+      const result = await createCase(formValue, currentActor);
       if (result) {
         commitHistory(result.historyMessage);
         setSelectedCaseId(result.caseRecord.id);
       }
     } else if (editingCaseId) {
-      const result = updateCase(editingCaseId, formValue, currentActor);
+      const result = await updateCase(editingCaseId, formValue, currentActor);
       if (result) {
         commitHistory(result.historyMessage);
       }
@@ -188,30 +197,30 @@ export default function CompensationModule({
     setFormOpen(false);
   };
 
-  const handleMarkReady = (caseRecord: CompensationCase) => {
-    const result = markReadyForClaim(caseRecord.id, currentActor);
+  const handleMarkReady = async (caseRecord: CompensationCase) => {
+    const result = await markReadyForClaim(caseRecord.id, currentActor);
     if (result) {
       commitHistory(result.historyMessage);
       setSelectedCaseId(result.caseRecord.id);
     }
   };
 
-  const handleComplete = (
+  const handleComplete = async (
     caseRecord: CompensationCase,
     payload: { fulfilledBy: string; claimNote: string }
   ) => {
-    const result = completeCase(caseRecord.id, payload);
+    const result = await completeCase(caseRecord.id, payload);
     if (result) {
       commitHistory(result.historyMessage);
       setSelectedCaseId(result.caseRecord.id);
     }
   };
 
-  const handleCancel = (
+  const handleCancel = async (
     caseRecord: CompensationCase,
     payload: { actor: string; archiveReason: string }
   ) => {
-    const result = cancelCase(caseRecord.id, payload);
+    const result = await cancelCase(caseRecord.id, payload);
     if (result) {
       commitHistory(result.historyMessage);
       setSelectedCaseId(result.caseRecord.id);
@@ -254,6 +263,24 @@ export default function CompensationModule({
       </header>
 
       <main className="mx-auto max-w-7xl px-6 py-10">
+        {error && (
+          <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-red-700">
+            {error}
+          </div>
+        )}
+
+        {refreshing && !loading && (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-slate-600 shadow-sm">
+            Refreshing compensation cases...
+          </div>
+        )}
+
+        {loading ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
+            Loading compensation cases...
+          </div>
+        ) : (
+          <>
         {overdueCases.length > 0 && (
           <div className="mb-6 flex items-center gap-3 rounded-2xl border border-accent/40 bg-accent/20 px-5 py-4 text-accent-foreground">
             <AlertTriangle className="h-5 w-5" />
@@ -423,6 +450,8 @@ export default function CompensationModule({
               />
             ))}
           </div>
+        )}
+          </>
         )}
       </main>
 

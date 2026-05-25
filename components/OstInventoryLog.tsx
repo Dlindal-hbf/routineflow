@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -6,131 +8,42 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AppSelect } from "@/components/ui/app-select";
 import { formatDate, formatTimestamp, getWeekdayName } from "@/lib/date-utils";
-
-type OstMetric =
-  | "Antall gram"
-  | "Levert"
-  | "Korrigert"
-  | "Forbruk"
-  | "Beholdning etter forbruk"
-  | "Beholdning etter telling"
-  | "Avvik";
-
-type OstProduct = "Mozzarella" | "Cheddar" | "Pizzamix" | "Parmesan";
+import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
+import {
+  INVENTORY_DAYS,
+  OST_METRICS,
+  createEmptyOstMeta,
+  createEmptyOstWeek,
+  deleteInventorySnapshot,
+  fetchOstInventoryState,
+  getCachedOstInventoryState,
+  normalizeOstEntries,
+  normalizeOstMeta,
+  saveOstCurrentState,
+  saveOstSnapshots,
+  type OstDayMeta,
+  type OstInventoryData as OstData,
+  type OstInventoryMeta as OstMetaByDay,
+  type OstInventorySnapshot as OstSnapshot,
+  type OstMetric,
+} from "@/src/services/inventoryService";
 
 function formatSnapshotName(date: Date): string {
   return `${formatDate(date)} (${getWeekdayName(date, { locale: "no-NO" })})`;
 }
 
-type OstDayMeta = {
-  signature: string;
-  notes: string;
-};
-
-const products: OstProduct[] = ["Mozzarella", "Cheddar", "Pizzamix", "Parmesan"];
-const metrics: OstMetric[] = [
-  "Antall gram",
-  "Levert",
-  "Korrigert",
-  "Forbruk",
-  "Beholdning etter forbruk",
-  "Beholdning etter telling",
-  "Avvik",
-];
-
-const days = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-];
-
-const CURRENT_KEY = "ostInventoryEntries.v1";
-const META_KEY = "ostInventoryMeta.v1";
-const SNAPSHOTS_KEY = "ostInventorySnapshots.v1";
-
-type OstData = Record<string, Record<OstMetric, string>>;
-type OstMetaByDay = Record<string, OstDayMeta>;
-
-type OstSnapshot = {
-  id: string;
-  name: string;
-  createdAt: string;
-  entries: OstData;
-  dayMeta: OstMetaByDay;
-};
-
 function getSnapshotId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
+
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function getTodayName(): string {
   const day = new Date().getDay();
-  const idx = (day + 6) % 7;
-  return days[idx];
-}
-
-function createEmptyData(): Record<OstMetric, string> {
-  const data = {} as Record<OstMetric, string>;
-  metrics.forEach((metric) => {
-    data[metric] = "";
-  });
-  return data;
-}
-
-function createEmptyWeek(): OstData {
-  const init = {} as OstData;
-  days.forEach((d) => {
-    init[d] = createEmptyData();
-  });
-  return init;
-}
-
-function createEmptyMeta(): OstMetaByDay {
-  const init = {} as OstMetaByDay;
-  days.forEach((d) => {
-    init[d] = { signature: "", notes: "" };
-  });
-  return init;
-}
-
-function normalizeEntries(raw: unknown): OstData {
-  const parsed = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-  const full = createEmptyWeek();
-
-  days.forEach((d) => {
-    const dayData = (parsed[d] as Record<string, unknown>) || {};
-    // handle legacy combined key
-    const legacyValue = typeof dayData["Korrigert/levert"] === "string" ? dayData["Korrigert/levert"] : "";
-    metrics.forEach((metric) => {
-      if (metric === "Korrigert") {
-        full[d][metric] = legacyValue || (typeof dayData[metric] === "string" ? dayData[metric] : "");
-      } else {
-        full[d][metric] = typeof dayData[metric] === "string" ? dayData[metric] : "";
-      }
-    });
-  });
-
-  return full;
-}
-
-function normalizeMeta(raw: unknown): OstMetaByDay {
-  const parsed = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
-  const full = createEmptyMeta();
-  days.forEach((d) => {
-    const dayMeta = (parsed[d] as Partial<OstDayMeta>) || {};
-    full[d] = {
-      signature: typeof dayMeta.signature === "string" ? dayMeta.signature : "",
-      notes: typeof dayMeta.notes === "string" ? dayMeta.notes : "",
-    };
-  });
-  return full;
+  const index = (day + 6) % 7;
+  return INVENTORY_DAYS[index];
 }
 
 function sanitizeNumericInput(value: string, allowSigned: boolean): string {
@@ -156,8 +69,8 @@ function sanitizeNumericInput(value: string, allowSigned: boolean): string {
 }
 
 function parseNumber(value: string): number {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? n : 0;
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export default function OstInventoryLog(props?: {
@@ -167,137 +80,115 @@ export default function OstInventoryLog(props?: {
   currentDayIndex?: number;
 }) {
   const { viewSnapshotId, readOnly, onOpenArchive, currentDayIndex } = props || {};
+  const cachedState = getCachedOstInventoryState();
+  const hasCachedState = Boolean(cachedState);
   const [selectedDay, setSelectedDay] = useState(getTodayName());
-  const [selectedSource, setSelectedSource] = useState<string>(viewSnapshotId || "current");
+  const [selectedSource, setSelectedSource] = useState(viewSnapshotId || "current");
+  const [entries, setEntries] = useState<OstData>(cachedState?.entries ?? createEmptyOstWeek);
+  const [dayMeta, setDayMeta] = useState<OstMetaByDay>(cachedState?.dayMeta ?? createEmptyOstMeta);
+  const [snapshots, setSnapshots] = useState<OstSnapshot[]>(cachedState?.snapshots ?? []);
+  const [loading, setLoading] = useState(!hasCachedState);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [hydrated, setHydrated] = useState(hasCachedState);
 
-  // lazy initialize from storage to avoid erasing real data with empties
-  const [entries, setEntries] = useState<OstData>(() => {
-    const stored = localStorage.getItem(CURRENT_KEY);
-    if (stored) {
-      try {
-        return normalizeEntries(JSON.parse(stored));
-      } catch {}
-    }
-    return createEmptyWeek();
-  });
+  useEffect(() => {
+    let isMounted = true;
 
-  const [dayMeta, setDayMeta] = useState<OstMetaByDay>(() => {
-    const stored = localStorage.getItem(META_KEY);
-    if (stored) {
+    const load = async () => {
       try {
-        return normalizeMeta(JSON.parse(stored));
-      } catch {}
-    }
-    return createEmptyMeta();
-  });
-
-  const [snapshots, setSnapshots] = useState<OstSnapshot[]>(() => {
-    const stored = localStorage.getItem(SNAPSHOTS_KEY);
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed
-            .filter((snapshot) => snapshot && typeof snapshot === "object")
-            .map((snapshot) => {
-              const cast = snapshot as Partial<OstSnapshot>;
-              const fallbackDate = new Date(cast.createdAt || Date.now());
-              const fallbackName = formatSnapshotName(fallbackDate);
-              return {
-                id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
-                name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
-                createdAt: typeof cast.createdAt === "string" ? cast.createdAt : new Date().toISOString(),
-                entries: normalizeEntries(cast.entries),
-                dayMeta: normalizeMeta(cast.dayMeta),
-              } as OstSnapshot;
-            })
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-          return normalized;
+        setLoading(!hasCachedState);
+        setRefreshing(hasCachedState);
+        setError(null);
+        await ensureLegacyBusinessDataMigrated();
+        const state = await fetchOstInventoryState();
+        if (!isMounted) {
+          return;
         }
-      } catch {}
-    }
-    return [];
-  });
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(CURRENT_KEY, JSON.stringify(entries));
-    } catch {}
-  }, [entries]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(META_KEY, JSON.stringify(dayMeta));
-    } catch {}
-  }, [dayMeta]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(snapshots));
-    } catch {}
-  }, [snapshots]);
-
-  // sync across tabs
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === CURRENT_KEY && e.newValue != null) {
-        try {
-          setEntries(normalizeEntries(JSON.parse(e.newValue)));
-        } catch {}
-      }
-      if (e.key === META_KEY && e.newValue != null) {
-        try {
-          setDayMeta(normalizeMeta(JSON.parse(e.newValue)));
-        } catch {}
-      }
-      if (e.key === SNAPSHOTS_KEY && e.newValue != null) {
-        try {
-          const parsed = JSON.parse(e.newValue);
-          if (Array.isArray(parsed)) {
-            const normalized = parsed
-              .filter((snapshot) => snapshot && typeof snapshot === "object")
-              .map((snapshot) => {
-                const cast = snapshot as Partial<OstSnapshot>;
-                const fallbackDate = new Date(cast.createdAt || Date.now());
-                const fallbackName = formatSnapshotName(fallbackDate);
-                return {
-                  id: typeof cast.id === "string" ? cast.id : getSnapshotId(),
-                  name: typeof cast.name === "string" && cast.name.trim() ? cast.name : fallbackName,
-                  createdAt: typeof cast.createdAt === "string" ? cast.createdAt : new Date().toISOString(),
-                  entries: normalizeEntries(cast.entries),
-                  dayMeta: normalizeMeta(cast.dayMeta),
-                } as OstSnapshot;
-              })
-              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-            setSnapshots(normalized);
-          }
-        } catch {}
+        setEntries(state.entries);
+        setDayMeta(state.dayMeta);
+        setSnapshots(state.snapshots);
+        setHydrated(true);
+      } catch (loadError) {
+        if (isMounted) {
+          setError(loadError instanceof Error ? loadError.message : "Failed to load ost inventory.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+          setRefreshing(false);
+        }
       }
     };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
 
+    void load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasCachedState]);
+
+  useEffect(() => {
+    setSelectedSource(viewSnapshotId || "current");
+  }, [viewSnapshotId]);
 
   useEffect(() => {
     if (typeof currentDayIndex === "number") {
-      const idx = (currentDayIndex + 6) % 7;
-      setSelectedDay(days[idx]);
+      const index = (currentDayIndex + 6) % 7;
+      setSelectedDay(INVENTORY_DAYS[index]);
     }
   }, [currentDayIndex]);
 
+  useEffect(() => {
+    if (!hydrated || readOnly) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          setSaving(true);
+          await saveOstCurrentState(normalizeOstEntries(entries), normalizeOstMeta(dayMeta));
+        } catch (saveError) {
+          setError(saveError instanceof Error ? saveError.message : "Failed to save ost inventory.");
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [dayMeta, entries, hydrated, readOnly]);
+
+  useEffect(() => {
+    if (!hydrated || readOnly) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          setSaving(true);
+          await saveOstSnapshots(snapshots);
+        } catch (saveError) {
+          setError(saveError instanceof Error ? saveError.message : "Failed to save ost snapshots.");
+        } finally {
+          setSaving(false);
+        }
+      })();
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [hydrated, readOnly, snapshots]);
+
   const viewingSnapshot = readOnly || selectedSource !== "current";
   const activeSnapshot = snapshots.find((snapshot) => snapshot.id === selectedSource);
-
   const sourceEntries =
-    selectedSource === "current"
-      ? entries
-      : activeSnapshot?.entries || entries;
-
+    selectedSource === "current" ? entries : activeSnapshot?.entries ?? entries;
   const sourceMeta =
-    selectedSource === "current"
-      ? dayMeta
-      : activeSnapshot?.dayMeta || dayMeta;
+    selectedSource === "current" ? dayMeta : activeSnapshot?.dayMeta ?? dayMeta;
 
   const updateCell = (day: string, metric: OstMetric, value: string) => {
     const allowSigned = metric === "Korrigert";
@@ -310,10 +201,11 @@ export default function OstInventoryLog(props?: {
     ) {
       sanitized = `+${sanitized}`;
     }
-    setEntries((prev) => ({
-      ...prev,
+
+    setEntries((current) => ({
+      ...current,
       [day]: {
-        ...(prev[day] || createEmptyData()),
+        ...(current[day] ?? createEmptyOstWeek()[day]),
         [metric]: sanitized,
       },
     }));
@@ -321,57 +213,108 @@ export default function OstInventoryLog(props?: {
 
   const getCellValue = (metric: OstMetric): string => {
     if (metric === "Beholdning etter forbruk") {
-      const antall = parseNumber(sourceEntries[selectedDay]["Antall gram"]);
-      const levert = parseNumber(sourceEntries[selectedDay]["Levert"]);
-      const korrigert = parseNumber(sourceEntries[selectedDay]["Korrigert"]);
-      const forbruk = parseNumber(sourceEntries[selectedDay]["Forbruk"]);
-      return (antall + levert + korrigert - forbruk).toString();
+      const amount = parseNumber(sourceEntries[selectedDay]["Antall gram"]);
+      const delivered = parseNumber(sourceEntries[selectedDay]["Levert"]);
+      const corrected = parseNumber(sourceEntries[selectedDay]["Korrigert"]);
+      const used = parseNumber(sourceEntries[selectedDay]["Forbruk"]);
+      return String(amount + delivered + corrected - used);
     }
+
     if (metric === "Avvik") {
-      const afterForbruk = parseNumber(
-        getCellValue("Beholdning etter forbruk")
-      );
-      const afterTelling = parseNumber(
-        sourceEntries[selectedDay]["Beholdning etter telling"] || ""
-      );
-      // deviation = telling - forbruk; negative when counted less than expected
-      const diff = afterTelling - afterForbruk;
-      return diff.toString();
+      const afterUsage = parseNumber(getCellValue("Beholdning etter forbruk"));
+      const afterCount = parseNumber(sourceEntries[selectedDay]["Beholdning etter telling"] || "");
+      return String(afterCount - afterUsage);
     }
+
     return sourceEntries[selectedDay][metric] || "";
   };
 
   const saveSnapshot = () => {
     const now = new Date();
-    const name = formatSnapshotName(now);
     const snapshot: OstSnapshot = {
       id: getSnapshotId(),
-      name,
+      name: formatSnapshotName(now),
       createdAt: now.toISOString(),
       entries: JSON.parse(JSON.stringify(entries)) as OstData,
       dayMeta: JSON.parse(JSON.stringify(dayMeta)) as OstMetaByDay,
     };
-    setSnapshots((prev) => [snapshot, ...prev]);
+
+    setSnapshots((current) => [snapshot, ...current]);
     setSelectedSource(snapshot.id);
   };
 
   const updateMeta = (field: keyof OstDayMeta, value: string) => {
-    setDayMeta((prev) => ({
-      ...prev,
+    setDayMeta((current) => ({
+      ...current,
       [selectedDay]: {
-        ...(prev[selectedDay] || { signature: "", notes: "" }),
+        ...(current[selectedDay] ?? { signature: "", notes: "" }),
         [field]: value,
       },
     }));
   };
 
+  const handleDeleteSnapshot = async (snapshotId: string) => {
+    try {
+      await deleteInventorySnapshot("ost", snapshotId);
+      setSnapshots((current) => current.filter((snapshot) => snapshot.id !== snapshotId));
+      if (selectedSource === snapshotId) {
+        setSelectedSource("current");
+      }
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete snapshot.");
+    }
+  };
+
+  if (loading) {
+    return (
+      <Card>
+        <CardContent className="p-6 text-slate-500">Loading ost inventory...</CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card>
+        <CardContent className="space-y-4 p-6">
+          <p className="text-red-600">{error}</p>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setHydrated(false);
+              setLoading(true);
+              setError(null);
+              void (async () => {
+                try {
+                  const state = await fetchOstInventoryState();
+                  setEntries(state.entries);
+                  setDayMeta(state.dayMeta);
+                  setSnapshots(state.snapshots);
+                  setHydrated(true);
+                } catch (retryError) {
+                  setError(
+                    retryError instanceof Error ? retryError.message : "Failed to reload ost inventory."
+                  );
+                } finally {
+                  setLoading(false);
+                }
+              })();
+            }}
+          >
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="overflow-auto w-full max-w-6xl mx-auto">
+    <Card className="mx-auto w-full max-w-6xl overflow-auto">
       <CardContent className="px-10 py-8">
         <div className="mb-6 flex gap-2">
           {!readOnly && (
             <Button
-              className="bg-primary hover:bg-primary/90 text-white"
+              className="bg-primary text-white hover:bg-primary/90"
               onClick={saveSnapshot}
               disabled={viewingSnapshot}
             >
@@ -383,7 +326,11 @@ export default function OstInventoryLog(props?: {
               Storage area
             </Button>
           )}
-        </div>
+        {saving && <span className="self-center text-sm text-slate-500">Saving...</span>}
+        {refreshing && !loading && (
+          <span className="self-center text-sm text-slate-500">Refreshing...</span>
+        )}
+      </div>
 
         {viewingSnapshot && activeSnapshot && (
           <div className="mb-6 flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -391,6 +338,16 @@ export default function OstInventoryLog(props?: {
             <span className="text-sm text-slate-600">
               {activeSnapshot.name} - {formatTimestamp(activeSnapshot.createdAt)}
             </span>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto text-red-600"
+                onClick={() => void handleDeleteSnapshot(activeSnapshot.id)}
+              >
+                Delete
+              </Button>
+            )}
           </div>
         )}
 
@@ -399,7 +356,7 @@ export default function OstInventoryLog(props?: {
           <AppSelect
             value={selectedDay}
             onValueChange={(nextValue) => setSelectedDay(nextValue)}
-            options={days.map((day) => ({ value: day, label: day }))}
+            options={INVENTORY_DAYS.map((day) => ({ value: day, label: day }))}
             placeholder="Velg dag"
             size="sm"
             className="w-[160px]"
@@ -410,31 +367,34 @@ export default function OstInventoryLog(props?: {
           <table className="table text-lg">
             <thead>
               <tr>
-                {metrics.map((m) => (
-                  <th key={m} className="border px-4 py-2 text-left">
-                    {m}
+                {OST_METRICS.map((metric) => (
+                  <th key={metric} className="border px-4 py-2 text-left">
+                    {metric}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
               <tr>
-                  {metrics.map((metric) => {
-                    const computed = metric === "Beholdning etter forbruk";
-                    const inputMode = metric === "Levert" || metric === "Antall gram" ? "decimal" : "decimal";
-                    return (
-                      <td key={metric} className="border px-2 py-2">
-                        <Input
-                          value={getCellValue(metric)}
-                          onChange={(e) => updateCell(selectedDay, metric, e.target.value)}
-                          className={`w-full h-12 p-2 text-lg ${computed || viewingSnapshot ? "bg-gray-100" : ""}`}
-                          readOnly={computed || viewingSnapshot}
-                          inputMode={inputMode}
-                        />
-                      </td>
-                    );
-                  })}
-                </tr>
+                {OST_METRICS.map((metric) => {
+                  const computed = metric === "Beholdning etter forbruk";
+                  return (
+                    <td key={metric} className="border px-2 py-2">
+                      <Input
+                        value={getCellValue(metric)}
+                        onChange={(event) =>
+                          updateCell(selectedDay, metric, event.target.value)
+                        }
+                        className={`h-12 w-full p-2 text-lg ${
+                          computed || viewingSnapshot ? "bg-gray-100" : ""
+                        }`}
+                        readOnly={computed || viewingSnapshot}
+                        inputMode="decimal"
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
             </tbody>
           </table>
         </div>
@@ -444,7 +404,7 @@ export default function OstInventoryLog(props?: {
             <label className="mb-2 block text-sm font-medium">Signatur</label>
             <Input
               value={sourceMeta[selectedDay]?.signature || ""}
-              onChange={(e) => updateMeta("signature", e.target.value)}
+              onChange={(event) => updateMeta("signature", event.target.value)}
               readOnly={viewingSnapshot}
               placeholder="Sign by person completing task"
             />
@@ -453,7 +413,7 @@ export default function OstInventoryLog(props?: {
             <label className="mb-2 block text-sm font-medium">Notater om mengde</label>
             <Textarea
               value={sourceMeta[selectedDay]?.notes || ""}
-              onChange={(e) => updateMeta("notes", e.target.value)}
+              onChange={(event) => updateMeta("notes", event.target.value)}
               readOnly={viewingSnapshot}
               placeholder="Optional note about product amount"
               rows={2}

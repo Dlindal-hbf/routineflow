@@ -21,6 +21,21 @@ function createHistoryId(
   return `${listId}:${taskId}:${periodStartAt}:${periodEndAt}`;
 }
 
+function isSameHistoryRecord(
+  record: RoutineTaskHistory,
+  listId: string,
+  taskId: string,
+  periodStartAt: string,
+  periodEndAt: string
+): boolean {
+  return (
+    record.listId === listId &&
+    record.taskId === taskId &&
+    record.periodStartAt === periodStartAt &&
+    record.periodEndAt === periodEndAt
+  );
+}
+
 function toPolicy(list: RoutineList): ResetSchedulePolicy {
   return {
     frequency: list.frequency,
@@ -105,7 +120,9 @@ function archivePeriod(
 
   for (const task of listTasks) {
     const historyId = createHistoryId(list.id, task.id, periodStartAt, periodEndIso);
-    const alreadyArchived = history.some((record) => record.id === historyId);
+    const alreadyArchived = history.some((record) =>
+      isSameHistoryRecord(record, list.id, task.id, periodStartAt, periodEndIso)
+    );
 
     if (alreadyArchived) {
       continue;

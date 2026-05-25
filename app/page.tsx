@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -17,6 +17,7 @@ import {
   Users,
   PenLine,
   HandCoins,
+  LoaderCircle,
 } from "lucide-react";
 import ListCard from "@/components/ListCard";
 import TaskCard from "@/components/TaskCard";
@@ -45,25 +46,35 @@ import ColorPicker from "@/components/ui/ColorPicker";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
 import { formatTimestamp } from "@/lib/date-utils";
 import type { ActivityHistoryEntry } from "@/lib/history-types";
-import {
-  createActivityHistoryEntry,
-  findSnapshotArchiveEntry,
-  readActivityHistoryEntries,
-} from "@/lib/history-utils";
+import { createActivityHistoryEntry } from "@/lib/history-utils";
 import { cn } from "@/lib/utils";
 import ResetScheduleForm, { ResetScheduleValue } from "@/src/components/ResetScheduleForm";
 import { RecordMetadata, RecordOrigin, RoutineFrequency } from "@/src/lib/scheduling/reset-types";
 import { calculateNextResetAt } from "@/src/lib/scheduling/reset-schedule";
-import {
-  processDueResetsInBrowserStorage,
-  DEFAULT_TIMEZONE,
-} from "@/src/lib/scheduling/browser-reset-store";
+import { DEFAULT_TIMEZONE } from "@/src/lib/scheduling/browser-reset-store";
 import {
   importRoutineTemplateRecords,
   loadTaskListRecords,
   saveTaskListRecords,
 } from "@/src/lib/scheduling/routine-records-repo";
 import { ROUTINE_TEMPLATES } from "@/src/lib/scheduling/routine-templates";
+import { useSupabaseSession } from "@/src/hooks/useSupabaseSession";
+import { ensureLegacyBusinessDataMigrated } from "@/src/services/localMigrationService";
+import {
+  fetchActivityHistoryEntries,
+  saveActivityHistoryEntries,
+} from "@/src/services/activityService";
+import {
+  processDueResetsInSupabase,
+} from "@/src/services/taskService";
+import {
+  fetchRoutineChecklistTasks,
+  saveRoutineChecklistTasks,
+} from "@/src/services/routineChecklistService";
+import {
+  fetchWorkLogEntries,
+  saveWorkLogEntries,
+} from "@/src/services/workLogService";
 
 type View =
   | "overview"
@@ -154,6 +165,83 @@ type WorkLogEntry = {
     signature: string;
   };
 };
+
+type BusinessDataCache = {
+  workLog: WorkLogEntry[];
+  history: ActivityHistoryEntry[];
+  taskLists: TaskList[];
+  cachedAt: string;
+};
+
+const BUSINESS_DATA_CACHE_VERSION = "v1";
+
+function getBusinessDataCacheKey(userId: string): string {
+  return `business-data-cache:${BUSINESS_DATA_CACHE_VERSION}:${userId}`;
+}
+
+function readBusinessDataCache(userId: string): BusinessDataCache | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = sessionStorage.getItem(getBusinessDataCacheKey(userId));
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<BusinessDataCache>;
+    if (
+      !Array.isArray(parsed.workLog) ||
+      !Array.isArray(parsed.history) ||
+      !Array.isArray(parsed.taskLists)
+    ) {
+      return null;
+    }
+
+    return {
+      workLog: parsed.workLog,
+      history: parsed.history,
+      taskLists: parsed.taskLists,
+      cachedAt:
+        typeof parsed.cachedAt === "string" ? parsed.cachedAt : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeBusinessDataCache(userId: string, value: BusinessDataCache) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.setItem(getBusinessDataCacheKey(userId), JSON.stringify(value));
+}
+
+function LoadingSkeletonCard({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <Card className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <CardContent className="space-y-4 p-6">
+        <div className="flex items-center gap-3 text-slate-600">
+          <LoaderCircle className="h-5 w-5 animate-spin" />
+          <span className="text-sm font-medium">{title}</span>
+        </div>
+        <div className="space-y-3">
+          <div className="h-4 w-3/4 animate-pulse rounded-full bg-slate-200" />
+          <div className="h-4 w-1/2 animate-pulse rounded-full bg-slate-100" />
+        </div>
+        <p className="text-sm text-slate-500">{description}</p>
+      </CardContent>
+    </Card>
+  );
+}
 
 const initialRoutines: Routine[] = [
   {
@@ -259,20 +347,15 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
   const [inventorySubView, setInventorySubView] = useState<"main" | "bunner" | "ost">("main");
   const [inventoryArchiveType, setInventoryArchiveType] = useState<"bunner" | "ost">("bunner");
+  const { loading: sessionLoading, error: sessionError, user: supabaseUser } =
+    useSupabaseSession();
+  const [businessLoading, setBusinessLoading] = useState(true);
+  const [businessRefreshing, setBusinessRefreshing] = useState(false);
+  const [businessPersistenceReady, setBusinessPersistenceReady] = useState(false);
+  const [showBusinessRefreshIndicator, setShowBusinessRefreshIndicator] = useState(false);
+  const [businessError, setBusinessError] = useState<string | null>(null);
 
-  // work log state (persisted)
-  const [workLog, setWorkLog] = useState<WorkLogEntry[]>(() => {
-    if (typeof window === "undefined") {
-      return initialWorkLog;
-    }
-    const stored = localStorage.getItem("workLog.v1");
-    if (stored) {
-      try {
-        return JSON.parse(stored) as WorkLogEntry[];
-      } catch {}
-    }
-    return initialWorkLog;
-  });
+  const [workLog, setWorkLog] = useState<WorkLogEntry[]>(initialWorkLog);
 
   // compensation dialog state
   const [isCompDialogOpen, setIsCompDialogOpen] = useState(false);
@@ -332,66 +415,14 @@ export default function WorkplaceRoutinesDemoStyle() {
     return true;
   };
   const [routines] = useState<Routine[]>(initialRoutines);
-  const [selectedRoutineId, setSelectedRoutineId] = useState<number>(2);
-  const [routineSearch, setRoutineSearch] = useState("");
+  const [selectedRoutineId] = useState<number>(2);
   const [taskFilter, setTaskFilter] = useState<"All" | Frequency>("All");
   const [logSearch, setLogSearch] = useState("");
   const [logTypeFilter, setLogTypeFilter] = useState<LogType | "All">("Batch Tracing");
 
-  // tasks for the currently open routine-detail view (persisted per routine)
   const [routineTasks, setRoutineTasks] = useState<Task[]>([]);
-
-  // load persisted tasks when selectedRoutineId changes or when entering detail view
-  useEffect(() => {
-    if (view === "routine-detail") {
-      const stored = localStorage.getItem(`routine-${selectedRoutineId}.v1`);
-      if (stored) {
-        try {
-          setRoutineTasks(JSON.parse(stored));
-        } catch {
-          setRoutineTasks(
-            routines.find((r) => r.id === selectedRoutineId)?.tasks || []
-          );
-        }
-      } else {
-        setRoutineTasks(
-          routines.find((r) => r.id === selectedRoutineId)?.tasks || []
-        );
-      }
-    }
-  }, [view, selectedRoutineId, routines]);
-
-  // persist routineTasks whenever they change
-  useEffect(() => {
-    if (view === "routine-detail") {
-      try {
-        localStorage.setItem(
-          `routine-${selectedRoutineId}.v1`,
-          JSON.stringify(routineTasks)
-        );
-      } catch {}
-    }
-  }, [routineTasks, selectedRoutineId, view]);
-
-  // persist workLog
-  useEffect(() => {
-    try {
-      localStorage.setItem("workLog.v1", JSON.stringify(workLog));
-    } catch {}
-  }, [workLog]);
-
-  // sync workLog across tabs/windows
-  useEffect(() => {
-    const handler = (e: StorageEvent) => {
-      if (e.key === "workLog.v1" && e.newValue != null) {
-        try {
-          setWorkLog(JSON.parse(e.newValue));
-        } catch {}
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
+  const [hasLoadedRoutineTasks, setHasLoadedRoutineTasks] = useState(false);
+  const [hasLoadedWorkLog, setHasLoadedWorkLog] = useState(false);
 
   // state for Avvik dialog
   const [isAvvikDialogOpen, setIsAvvikDialogOpen] = useState(false);
@@ -399,32 +430,13 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [productType, setProductType] = useState("stor");
   const [employee, setEmployee] = useState("");
 
-  // history state for automated logging
-  const [history, setHistory] = useState<ActivityHistoryEntry[]>(() =>
-    readActivityHistoryEntries("history")
-  );
+  const [history, setHistory] = useState<ActivityHistoryEntry[]>([]);
+  const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
 
-  // Save history to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem("history", JSON.stringify(history));
-  }, [history]);
-
-  // sync history across tabs/windows
-  useEffect(() => {
-    const handler = (event: StorageEvent) => {
-      if (event.key === "history") {
-        setHistory(readActivityHistoryEntries("history"));
-      }
-    };
-
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
-  }, []);
-
-  // task lists state (each behaves like the original "Stengerutiner" list)
   const [taskLists, setTaskLists] = useState<TaskList[]>([]);
   const [hasLoadedTaskLists, setHasLoadedTaskLists] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
+  const skipNextTaskListSaveRef = useRef(false);
 
   const ensureMetadata = (
     value: RecordMetadata | undefined,
@@ -447,24 +459,16 @@ export default function WorkplaceRoutinesDemoStyle() {
     createdBy: user?.code ?? "admin",
   });
 
-  const loadTaskListsFromStore = (): TaskList[] => {
-    const loaded = loadTaskListRecords();
+  const loadTaskListsFromStore = async (): Promise<TaskList[]> => {
+    const loaded = await loadTaskListRecords();
     return loaded.map((l) => ({
       ...l,
-      color:
-        interpretColor(l.color as string) ||
-        (l.color as string) ||
-        "red",
+      color: interpretColor(l.color as string) || (l.color as string) || "red",
       metadata: ensureMetadata(l.metadata),
-      // legacy data may omit resetEnabled, ensure it's a boolean
       resetEnabled: !!l.resetEnabled,
-      // frequency must be defined for TaskList; default to "none"
       frequency: l.frequency || "none",
-      // resetTime is required on TaskList; fallback to empty string
       resetTime: l.resetTime || "",
-      // timezone is required; default to UTC
       timezone: l.timezone || "UTC",
-      // convert legacy tasks to current Task type
       tasks: l.tasks.map((t) => ({
         ...t,
         description: t.description || "",
@@ -472,53 +476,283 @@ export default function WorkplaceRoutinesDemoStyle() {
       })),
     }));
   };
+  const loadTaskListsFromStoreEvent = useEffectEvent(async () => loadTaskListsFromStore());
+  const replaceTaskListsFromRemote = (nextTaskLists: TaskList[]) => {
+    skipNextTaskListSaveRef.current = true;
+    setTaskLists(nextTaskLists);
+  };
 
-  // load lists from localStorage or initialize empty (no prepopulated cards)
   useEffect(() => {
-    setTaskLists(loadTaskListsFromStore());
-    setHasLoadedTaskLists(true);
-  }, []);
-
-  // persist lists
-  useEffect(() => {
-    if (!hasLoadedTaskLists) {
+    if (!businessRefreshing) {
+      setShowBusinessRefreshIndicator(false);
       return;
     }
 
-    saveTaskListRecords(taskLists);
-  }, [hasLoadedTaskLists, taskLists]);
+    const timeout = window.setTimeout(() => {
+      setShowBusinessRefreshIndicator(true);
+    }, 180);
 
-  // Run reset processing in a centralized module and hydrate updated live state.
+    return () => window.clearTimeout(timeout);
+  }, [businessRefreshing]);
+
   useEffect(() => {
-    const checkDueResets = () => {
-      processDueResetsInBrowserStorage(new Date());
-      setTaskLists(loadTaskListsFromStore());
+    if (!supabaseUser) {
+      return;
+    }
+
+    let isMounted = true;
+    const cachedBusinessData = readBusinessDataCache(supabaseUser.id);
+
+    setBusinessPersistenceReady(false);
+
+    if (cachedBusinessData) {
+      setWorkLog(cachedBusinessData.workLog);
+      setHistory(cachedBusinessData.history);
+      replaceTaskListsFromRemote(cachedBusinessData.taskLists);
+      setHasLoadedWorkLog(true);
+      setHasLoadedHistory(true);
+      setHasLoadedTaskLists(true);
+      setBusinessLoading(false);
+    } else {
+      setBusinessLoading(true);
+    }
+
+    const loadBusinessData = async () => {
+      try {
+        setBusinessRefreshing(Boolean(cachedBusinessData));
+        setBusinessError(null);
+        await ensureLegacyBusinessDataMigrated();
+        const [loadedWorkLog, loadedHistory, loadedTaskLists] = await Promise.all([
+          fetchWorkLogEntries(),
+          fetchActivityHistoryEntries(),
+          loadTaskListsFromStoreEvent(),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setWorkLog(loadedWorkLog);
+        setHistory(loadedHistory);
+        replaceTaskListsFromRemote(loadedTaskLists);
+        setHasLoadedWorkLog(true);
+        setHasLoadedHistory(true);
+        setHasLoadedTaskLists(true);
+        setBusinessPersistenceReady(true);
+        writeBusinessDataCache(supabaseUser.id, {
+          workLog: loadedWorkLog,
+          history: loadedHistory,
+          taskLists: loadedTaskLists,
+          cachedAt: new Date().toISOString(),
+        });
+      } catch (loadError) {
+        if (isMounted) {
+          setBusinessError(
+            loadError instanceof Error ? loadError.message : "Failed to load business data."
+          );
+        }
+      } finally {
+        if (isMounted) {
+          setBusinessLoading(false);
+          setBusinessRefreshing(false);
+        }
+      }
     };
 
-    checkDueResets();
-    const interval = setInterval(checkDueResets, 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
+    void loadBusinessData();
 
-  // Lazy fallback: when opening list pages, process due resets before rendering details.
+    return () => {
+      isMounted = false;
+    };
+  }, [supabaseUser]);
+
   useEffect(() => {
-    if (view !== "list-detail" && view !== "list-history") {
+    if (!supabaseUser || !hasLoadedWorkLog || !hasLoadedHistory || !hasLoadedTaskLists) {
       return;
     }
 
-    processDueResetsInBrowserStorage(new Date());
-    setTaskLists(loadTaskListsFromStore());
-  }, [view, selectedListId]);
+    writeBusinessDataCache(supabaseUser.id, {
+      workLog,
+      history,
+      taskLists,
+      cachedAt: new Date().toISOString(),
+    });
+  }, [
+    hasLoadedHistory,
+    hasLoadedTaskLists,
+    hasLoadedWorkLog,
+    history,
+    supabaseUser,
+    taskLists,
+    workLog,
+  ]);
+
+  useEffect(() => {
+    if (view !== "routine-detail" || !supabaseUser) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadRoutineTasks = async () => {
+      try {
+        const routine = routines.find((entry) => entry.id === selectedRoutineId);
+        if (!routine) {
+          return;
+        }
+
+        const loadedTasks = await fetchRoutineChecklistTasks(
+          selectedRoutineId,
+          routine.title,
+          routine.tasks
+        );
+
+        if (isMounted) {
+          setRoutineTasks(loadedTasks);
+          setHasLoadedRoutineTasks(true);
+        }
+      } catch (loadError) {
+        if (isMounted) {
+          setBusinessError(
+            loadError instanceof Error ? loadError.message : "Failed to load routine checklist."
+          );
+          setRoutineTasks(routines.find((entry) => entry.id === selectedRoutineId)?.tasks ?? []);
+        }
+      }
+    };
+
+    void loadRoutineTasks();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [routines, selectedRoutineId, supabaseUser, view]);
+
+  useEffect(() => {
+    if (!hasLoadedRoutineTasks || !supabaseUser) {
+      return;
+    }
+
+    const routine = routines.find((entry) => entry.id === selectedRoutineId);
+    if (!routine) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveRoutineChecklistTasks(selectedRoutineId, routine.title, routineTasks).catch(
+        (saveError) => {
+          setBusinessError(
+            saveError instanceof Error ? saveError.message : "Failed to save routine tasks."
+          );
+        }
+      );
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [hasLoadedRoutineTasks, routineTasks, routines, selectedRoutineId, supabaseUser]);
+
+  useEffect(() => {
+    if (!businessPersistenceReady || !hasLoadedWorkLog || !supabaseUser) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveWorkLogEntries(workLog).catch((saveError) => {
+        setBusinessError(
+          saveError instanceof Error ? saveError.message : "Failed to save work log."
+        );
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [businessPersistenceReady, hasLoadedWorkLog, supabaseUser, workLog]);
+
+  useEffect(() => {
+    if (!businessPersistenceReady || !hasLoadedHistory || !supabaseUser) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveActivityHistoryEntries(history).catch((saveError) => {
+        setBusinessError(
+          saveError instanceof Error ? saveError.message : "Failed to save activity history."
+        );
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [businessPersistenceReady, hasLoadedHistory, history, supabaseUser]);
+
+  useEffect(() => {
+    if (!businessPersistenceReady || !hasLoadedTaskLists || !supabaseUser) {
+      return;
+    }
+
+    if (skipNextTaskListSaveRef.current) {
+      skipNextTaskListSaveRef.current = false;
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void saveTaskListRecords(taskLists).catch((saveError) => {
+        setBusinessError(
+          saveError instanceof Error ? saveError.message : "Failed to save task lists."
+        );
+      });
+    }, 250);
+
+    return () => window.clearTimeout(timeout);
+  }, [businessPersistenceReady, hasLoadedTaskLists, supabaseUser, taskLists]);
+
+  useEffect(() => {
+    if (!supabaseUser || !businessPersistenceReady) {
+      return;
+    }
+
+    const checkDueResets = async () => {
+      try {
+        await processDueResetsInSupabase(new Date());
+        const refreshedLists = await loadTaskListsFromStoreEvent();
+        replaceTaskListsFromRemote(refreshedLists);
+      } catch (resetError) {
+        setBusinessError(
+          resetError instanceof Error ? resetError.message : "Failed to process scheduled resets."
+        );
+      }
+    };
+
+    void checkDueResets();
+    const interval = window.setInterval(() => {
+      void checkDueResets();
+    }, 60 * 1000);
+
+    return () => window.clearInterval(interval);
+  }, [businessPersistenceReady, supabaseUser]);
+
+  useEffect(() => {
+    if (
+      (view !== "list-detail" && view !== "list-history") ||
+      !supabaseUser ||
+      !businessPersistenceReady
+    ) {
+      return;
+    }
+
+    void (async () => {
+      try {
+        await processDueResetsInSupabase(new Date());
+        replaceTaskListsFromRemote(await loadTaskListsFromStoreEvent());
+      } catch (resetError) {
+        setBusinessError(
+          resetError instanceof Error ? resetError.message : "Failed to refresh task lists."
+        );
+      }
+    })();
+  }, [businessPersistenceReady, selectedListId, supabaseUser, view]);
 
 
   const selectedRoutine =
     routines.find((routine) => routine.id === selectedRoutineId) ?? routines[0];
-
-  const filteredRoutines = useMemo(() => {
-    return routines.filter((routine) =>
-      routine.title.toLowerCase().includes(routineSearch.toLowerCase())
-    );
-  }, [routineSearch, routines]);
 
   const filteredTasks = useMemo(() => {
     if (!selectedRoutine) return [];
@@ -546,13 +780,6 @@ export default function WorkplaceRoutinesDemoStyle() {
     inventoryArchiveType === "bunner"
       ? "inventorySnapshots.v1"
       : "ostInventorySnapshots.v1";
-  const selectedSnapshotMeta = useMemo(
-    () =>
-      snapshotId
-        ? findSnapshotArchiveEntry(inventoryArchiveStorageKey, snapshotId)
-        : null,
-    [inventoryArchiveStorageKey, snapshotId]
-  );
 
   const sortedCurrentListTasks = useMemo(() => {
     if (!selectedList) return [];
@@ -583,11 +810,6 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
 
     return `Monthly (day ${list.resetDayOfMonth ?? 1}) at ${list.resetTime}`;
-  };
-
-  const openRoutine = (id: number) => {
-    setSelectedRoutineId(id);
-    setView("routine-detail");
   };
 
   // helpers for log manipulation
@@ -1057,7 +1279,7 @@ export default function WorkplaceRoutinesDemoStyle() {
     setIsNewListDialogOpen(true);
   };
 
-  const handleCreateRoutine = () => {
+  const handleCreateRoutine = async () => {
     if (createRoutineMode === "blank") {
       setCreateRoutineError(null);
       setIsCreateRoutineDialogOpen(false);
@@ -1075,12 +1297,12 @@ export default function WorkplaceRoutinesDemoStyle() {
     // import writes legacy data and returns the raw legacy lists, which don't match our
     // TaskList state type.  Instead reload from the store so we get properly normalized
     // TaskList objects.
-    importRoutineTemplateRecords(taskLists, template, templateIndex, {
+    await importRoutineTemplateRecords(taskLists, template, templateIndex, {
       createdBy: user?.code ?? "admin",
     });
 
     // refresh from repo after import
-    setTaskLists(loadTaskListsFromStore());
+    replaceTaskListsFromRemote(await loadTaskListsFromStore());
     setCreateRoutineError(null);
     setIsCreateRoutineDialogOpen(false);
   };
@@ -1223,8 +1445,48 @@ export default function WorkplaceRoutinesDemoStyle() {
     }),
     [workLog]
   );
+
+  const showTaskListLoadingSkeletons = businessLoading && !hasLoadedTaskLists;
+  const showWorkLogLoadingSkeletons = businessLoading && !hasLoadedWorkLog;
+  const showHistoryLoadingSkeleton = businessLoading && !hasLoadedHistory;
+
+  if (sessionLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+        <div className="text-center">
+          <h1 className="text-3xl font-semibold">Connecting to Supabase</h1>
+          <p className="mt-3 text-lg text-foreground/70">Preparing your secure workspace...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+        <div className="max-w-xl rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
+          <h1 className="text-2xl font-semibold text-red-700">Supabase setup is incomplete</h1>
+          <p className="mt-3 text-base text-slate-600">{sessionError}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {businessError && user && (
+        <div className="border-b border-red-200 bg-red-50 px-6 py-3 text-sm text-red-700">
+          {businessError}
+        </div>
+      )}
+      {showBusinessRefreshIndicator && user && (
+        <div className="border-b border-slate-200 bg-white/90 px-6 py-3 text-sm text-slate-600 backdrop-blur">
+          <div className="mx-auto flex max-w-7xl items-center gap-3">
+            <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+            <span>Refreshing business data in the background…</span>
+          </div>
+        </div>
+      )}
       {!user && (
         <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 text-foreground">
           <h1 className="mb-4 text-5xl font-bold text-primary">PB INTERNE RUTINER</h1>
@@ -1375,6 +1637,12 @@ export default function WorkplaceRoutinesDemoStyle() {
           </header>
 
           <main className="mx-auto max-w-7xl px-6 py-10">
+            {showTaskListLoadingSkeletons && (
+              <div className="mb-6 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600 shadow-sm">
+                <LoaderCircle className="h-4 w-4 animate-spin text-primary" />
+                <span>Loading your task lists and activity data…</span>
+              </div>
+            )}
             <motion.div 
               className="grid gap-8 lg:grid-cols-3"
               initial="hidden"
@@ -1390,6 +1658,14 @@ export default function WorkplaceRoutinesDemoStyle() {
               }}
             >
               {/* unified live list records (seeded/imported/admin-created) */}
+              {showTaskListLoadingSkeletons &&
+                Array.from({ length: 3 }, (_, index) => (
+                  <LoadingSkeletonCard
+                    key={`task-list-skeleton-${index}`}
+                    title="Loading task list"
+                    description="Fetching routines and saved progress from Supabase."
+                  />
+                ))}
               {taskLists.map((list) => {
                 const completed = list.tasks.filter((t) => t.completed).length;
                 const total = list.tasks.length;
@@ -1662,174 +1938,199 @@ export default function WorkplaceRoutinesDemoStyle() {
               />
             </div>
 
-            <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Card className="rounded-3xl border border-slate-200 bg-white">
-                <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-red-500">{logStats.deviations}</div>
-                  <div className="mt-2 text-xl text-slate-500">Avvik</div>
-                  <div className="mt-4">
-                    {user?.role === "admin" ? (
-                      <Button onClick={() => addLogEntry("Deviation")} className="w-full h-10 text-lg" asChild>
-                        <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                          New Entry
-                        </motion.button>
-                      </Button>
-                    ) : (
-                      <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                        Login as admin to add
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-3xl border-2 border-primary bg-white">
-                <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-primary">{logStats.batch}</div>
-                  <div className="mt-2 text-xl text-slate-500">LOT-sporing</div>
-                  <div className="mt-4">
-                    {user?.role === "admin" ? (
-                      <Button onClick={() => addLogEntry("Batch Tracing")} className="w-full h-10 text-lg" asChild>
-                        <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                          New Entry
-                        </motion.button>
-                      </Button>
-                    ) : (
-                      <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                        Login as admin to add
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-3xl border border-slate-200 bg-white">
-                <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-accent-gold">{logStats.compensation}</div>
-                  <div className="mt-2 text-xl text-slate-500">Kompensasjoner</div>
-                  <div className="mt-4">
-                    {user?.role === "admin" ? (
-                      <Button onClick={() => addLogEntry("Compensation")} className="w-full h-10 text-lg" asChild>
-                        <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                          New Entry
-                        </motion.button>
-                      </Button>
-                    ) : (
-                      <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                        Login as admin to add
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="rounded-3xl border border-slate-200 bg-white">
-                <CardContent className="p-6">
-                  <div className="text-5xl font-bold text-slate-600">{logStats.other}</div>
-                  <div className="mt-2 text-xl text-slate-500">Other</div>
-                  <div className="mt-4">
-                    {user?.role === "admin" ? (
-                      <Button onClick={() => addLogEntry("Other")} className="w-full h-10 text-lg" asChild>
-                        <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                          New Entry
-                        </motion.button>
-                      </Button>
-                    ) : (
-                      <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                        Login as admin to add
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="space-y-5">
-              {filteredLogs.map((entry) => (
-                <Card
-                  key={entry.id}
-                  className={
-                    "rounded-3xl border border-slate-200 border-l-4 bg-white " +
-                    (entry.type === "Deviation"
-                      ? "border-l-red-500"
-                      : entry.type === "Batch Tracing"
-                      ? "border-l-primary"
-                      : entry.type === "Compensation"
-                      ? "border-l-accent-gold"
-                      : "border-l-slate-400")
-                  }
-                >
-                  <CardContent className="p-6">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex min-w-0 gap-4">
-                        <div className="pt-1 text-slate-500">
-                          <Package className="h-6 w-6" />
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="mb-3 flex flex-wrap items-center gap-3 text-lg text-slate-500">
-                            <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
-                              {entry.type}
-                            </Badge>
-                            <span>{formatTimestamp(entry.date)}</span>
-                            <span>·</span>
-                            <span>{entry.author}</span>
-                          </div>
-
-                          <h3 className="mb-3 text-3xl font-semibold">{entry.title}</h3>
-                          {entry.type === "Compensation" && entry.compensation ? (
-                            <div className="mb-3 space-y-2 rounded-md border border-accent-gold-muted bg-accent-gold-muted/50 p-4">
-                              <div>
-                                <strong>Hva skjedde:</strong> {entry.compensation.reason}
-                              </div>
-                              <div>
-                                <strong>Kompensasjon:</strong> {entry.compensation.compensation}
-                              </div>
-                              <div>
-                                <strong>Signatur:</strong> {entry.compensation.signature}
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="mb-3 text-xl text-slate-500">{entry.details}</p>
-                          )}
-
-                          <div className="flex flex-wrap gap-2">
-                            {entry.pills?.map((pill) => (
-                              <Badge
-                                key={pill}
-                                variant="outline"
-                                className="rounded-lg border-primary/20 bg-primary/10 px-3 py-1 text-base text-primary/70"
-                              >
-                                {pill}
-                              </Badge>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-4">
-                        {user?.role === "admin" && (
-                          <>
-                            <button
-                              onClick={() => editLogEntry(entry)}
-                              className="text-slate-700 hover:text-slate-900"
-                            >
-                              <PenLine className="h-6 w-6" />
-                            </button>
-                            <button
-                              onClick={() => deleteLogEntry(entry.id)}
-                              className="text-red-500 hover:text-red-600"
-                            >
-                              <Trash2 className="h-6 w-6" />
-                            </button>
-                          </>
+            {showWorkLogLoadingSkeletons ? (
+              <>
+                <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <LoadingSkeletonCard
+                      key={`work-log-stat-skeleton-${index}`}
+                      title="Loading work log"
+                      description="Fetching counts and recent entries from Supabase."
+                    />
+                  ))}
+                </div>
+                <div className="space-y-5">
+                  {Array.from({ length: 3 }, (_, index) => (
+                    <LoadingSkeletonCard
+                      key={`work-log-entry-skeleton-${index}`}
+                      title="Loading entry"
+                      description="Recent work-log entries will appear here."
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  <Card className="rounded-3xl border border-slate-200 bg-white">
+                    <CardContent className="p-6">
+                      <div className="text-5xl font-bold text-red-500">{logStats.deviations}</div>
+                      <div className="mt-2 text-xl text-slate-500">Avvik</div>
+                      <div className="mt-4">
+                        {user?.role === "admin" ? (
+                          <Button onClick={() => addLogEntry("Deviation")} className="w-full h-10 text-lg" asChild>
+                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
+                              New Entry
+                            </motion.button>
+                          </Button>
+                        ) : (
+                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
+                            Login as admin to add
+                          </Button>
                         )}
                       </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-3xl border-2 border-primary bg-white">
+                    <CardContent className="p-6">
+                      <div className="text-5xl font-bold text-primary">{logStats.batch}</div>
+                      <div className="mt-2 text-xl text-slate-500">LOT-sporing</div>
+                      <div className="mt-4">
+                        {user?.role === "admin" ? (
+                          <Button onClick={() => addLogEntry("Batch Tracing")} className="w-full h-10 text-lg" asChild>
+                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
+                              New Entry
+                            </motion.button>
+                          </Button>
+                        ) : (
+                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
+                            Login as admin to add
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-3xl border border-slate-200 bg-white">
+                    <CardContent className="p-6">
+                      <div className="text-5xl font-bold text-accent-gold">{logStats.compensation}</div>
+                      <div className="mt-2 text-xl text-slate-500">Kompensasjoner</div>
+                      <div className="mt-4">
+                        {user?.role === "admin" ? (
+                          <Button onClick={() => addLogEntry("Compensation")} className="w-full h-10 text-lg" asChild>
+                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
+                              New Entry
+                            </motion.button>
+                          </Button>
+                        ) : (
+                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
+                            Login as admin to add
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="rounded-3xl border border-slate-200 bg-white">
+                    <CardContent className="p-6">
+                      <div className="text-5xl font-bold text-slate-600">{logStats.other}</div>
+                      <div className="mt-2 text-xl text-slate-500">Other</div>
+                      <div className="mt-4">
+                        {user?.role === "admin" ? (
+                          <Button onClick={() => addLogEntry("Other")} className="w-full h-10 text-lg" asChild>
+                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
+                              New Entry
+                            </motion.button>
+                          </Button>
+                        ) : (
+                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
+                            Login as admin to add
+                          </Button>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="space-y-5">
+                  {filteredLogs.map((entry) => (
+                    <Card
+                      key={entry.id}
+                      className={
+                        "rounded-3xl border border-slate-200 border-l-4 bg-white " +
+                        (entry.type === "Deviation"
+                          ? "border-l-red-500"
+                          : entry.type === "Batch Tracing"
+                          ? "border-l-primary"
+                          : entry.type === "Compensation"
+                          ? "border-l-accent-gold"
+                          : "border-l-slate-400")
+                      }
+                    >
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex min-w-0 gap-4">
+                            <div className="pt-1 text-slate-500">
+                              <Package className="h-6 w-6" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="mb-3 flex flex-wrap items-center gap-3 text-lg text-slate-500">
+                                <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
+                                  {entry.type}
+                                </Badge>
+                                <span>{formatTimestamp(entry.date)}</span>
+                                <span>·</span>
+                                <span>{entry.author}</span>
+                              </div>
+
+                              <h3 className="mb-3 text-3xl font-semibold">{entry.title}</h3>
+                              {entry.type === "Compensation" && entry.compensation ? (
+                                <div className="mb-3 space-y-2 rounded-md border border-accent-gold-muted bg-accent-gold-muted/50 p-4">
+                                  <div>
+                                    <strong>Hva skjedde:</strong> {entry.compensation.reason}
+                                  </div>
+                                  <div>
+                                    <strong>Kompensasjon:</strong> {entry.compensation.compensation}
+                                  </div>
+                                  <div>
+                                    <strong>Signatur:</strong> {entry.compensation.signature}
+                                  </div>
+                                </div>
+                              ) : (
+                                <p className="mb-3 text-xl text-slate-500">{entry.details}</p>
+                              )}
+
+                              <div className="flex flex-wrap gap-2">
+                                {entry.pills?.map((pill) => (
+                                  <Badge
+                                    key={pill}
+                                    variant="outline"
+                                    className="rounded-lg border-primary/20 bg-primary/10 px-3 py-1 text-base text-primary/70"
+                                  >
+                                    {pill}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-4">
+                            {user?.role === "admin" && (
+                              <>
+                                <button
+                                  onClick={() => editLogEntry(entry)}
+                                  className="text-slate-700 hover:text-slate-900"
+                                >
+                                  <PenLine className="h-6 w-6" />
+                                </button>
+                                <button
+                                  onClick={() => deleteLogEntry(entry.id)}
+                                  className="text-red-500 hover:text-red-600"
+                                >
+                                  <Trash2 className="h-6 w-6" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
+            )}
           </main>
         </div>
       )}
@@ -2003,12 +2304,8 @@ export default function WorkplaceRoutinesDemoStyle() {
 
       {view === "inventory-snapshot" && snapshotId && (
         <HistoryPageShell
-          title={selectedSnapshotMeta?.name ?? "Snapshot Viewer"}
-          description={
-            selectedSnapshotMeta
-              ? `Saved ${formatTimestamp(selectedSnapshotMeta.createdAt)}`
-              : "Read-only archived snapshot"
-          }
+          title="Snapshot Viewer"
+          description="Read-only archived snapshot"
           onBack={() => {
             setSnapshotId(null);
             setView("inventory-archive");
@@ -2035,7 +2332,6 @@ export default function WorkplaceRoutinesDemoStyle() {
                 onClick={() => {
                   if (window.confirm("Clear all history? This cannot be undone.")) {
                     setHistory([]);
-                    localStorage.removeItem("history");
                   }
                 }}
                 variant="outline"
@@ -2046,7 +2342,14 @@ export default function WorkplaceRoutinesDemoStyle() {
             ) : undefined
           }
         >
-          <ActivityHistoryView entries={history} />
+          {showHistoryLoadingSkeleton ? (
+            <LoadingSkeletonCard
+              title="Loading history"
+              description="Recent activity will appear here as soon as the sync completes."
+            />
+          ) : (
+            <ActivityHistoryView entries={history} />
+          )}
         </HistoryPageShell>
       )}
 
