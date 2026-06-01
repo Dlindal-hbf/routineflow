@@ -46,6 +46,7 @@ export default function ListCard({
         )}
       >
         <CardContent className="p-5">
+          <div className="mb-3 h-0.5 w-12 rounded-full bg-gradient-to-r from-accent/85 via-accent/60 to-transparent" />
           <div className="mb-3 flex items-start justify-between gap-3">
             <div>
               <div className="mb-1.5 text-2xl leading-tight">
@@ -64,7 +65,7 @@ export default function ListCard({
                   e.stopPropagation();
                   onSettings();
                 }}
-                className="h-9 w-9 rounded-lg border border-border text-foreground/60 transition-colors hover:bg-muted hover:text-foreground"
+                className="h-9 w-9 rounded-lg border border-border text-foreground/60 transition-colors hover:border-accent/40 hover:bg-accent/20 hover:text-primary focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
               >
                 <Settings className="h-4 w-4" />
               </button>

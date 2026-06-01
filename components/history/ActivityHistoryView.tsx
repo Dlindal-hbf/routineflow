@@ -62,7 +62,7 @@ export default function ActivityHistoryView({
     <HistoryDateBrowser
       days={days}
       emptyTitle="No history recorded yet."
-      emptyDescription="Complete tasks or create work-log entries to start building history."
+      emptyDescription="Complete tasks or add new activity to start building history."
       noResultsTitle="No history in this month."
       noResultsDescription="Try another month or clear the day filter to see more activity."
     />

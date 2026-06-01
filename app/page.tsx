@@ -3,7 +3,6 @@
 import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
-  BookOpen,
   Calendar,
   CheckCircle2,
   ClipboardList,
@@ -11,11 +10,8 @@ import {
   Slice,
   Pizza,
   Plus,
-  Search,
-  Trash2,
   User,
   Users,
-  PenLine,
   HandCoins,
   LoaderCircle,
 } from "lucide-react";
@@ -27,8 +23,6 @@ import HistoryPageShell from "@/components/history/HistoryPageShell";
 import SnapshotArchiveView from "@/components/history/SnapshotArchiveView";
 import BrandedHeader from "@/components/BrandedHeader";
 import BackgroundSyncStatus from "@/components/BackgroundSyncStatus";
-import { Textarea } from "@/components/ui/textarea";
-
 import { motion } from "framer-motion";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,14 +31,12 @@ import { Button } from "@/components/ui/button";
 import InventoryLog from "@/components/InventoryLog";
 import OstInventoryLog from "@/components/OstInventoryLog";
 import { Badge } from "@/components/ui/badge";
-import { AppSelect, type AppSelectOption } from "@/components/ui/app-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import TaskListHistory from "@/components/TaskListHistory"; // generic history viewer for any list
 import CompensationModule from "@/components/CompensationModule";
 import ColorPicker from "@/components/ui/ColorPicker";
 import { getAccentClass, getBgClass, interpretColor, ColorKey } from "@/lib/colors";
-import { formatTimestamp } from "@/lib/date-utils";
 import type { ActivityHistoryEntry } from "@/lib/history-types";
 import { createActivityHistoryEntry } from "@/lib/history-utils";
 import { cn } from "@/lib/utils";
@@ -71,11 +63,6 @@ import {
   fetchRoutineChecklistTasks,
   saveRoutineChecklistTasks,
 } from "@/src/services/routineChecklistService";
-import {
-  fetchWorkLogEntries,
-  getCachedWorkLogEntries,
-  saveWorkLogEntries,
-} from "@/src/services/workLogService";
 import { getCachedActivityHistoryEntries } from "@/src/services/activityService";
 import {
   fetchBunnerInventoryState,
@@ -88,7 +75,6 @@ type View =
   | "overview"
   | "compensation"
   | "routine-detail"
-  | "work-log"
   | "workers"
   | "history"
   | "list-detail"            // viewing a generic task list (formerly daily-tasks)
@@ -98,15 +84,6 @@ type View =
   | "inventory-snapshot";
 
 type Frequency = "Daily" | "Weekly" | "Bi-weekly" | "Monthly";
-type LogType = "Deviation" | "Batch Tracing" | "Compensation" | "Other";
-
-const logTypeFilterOptions: AppSelectOption<LogType | "All">[] = [
-  { value: "All", label: "Alle oppføringer" },
-  { value: "Batch Tracing", label: "LOT-sporing" },
-  { value: "Deviation", label: "Avvik" },
-  { value: "Compensation", label: "Kompensasjoner" },
-  { value: "Other", label: "Annet" },
-];
 
 // individual history record for a task
 
@@ -158,24 +135,7 @@ type Routine = {
   tasks: Task[];
 };
 
-type WorkLogEntry = {
-  id: number;
-  type: LogType;
-  title: string;
-  date: string;
-  author: string;
-  details: string;
-  pills?: string[];
-  // compensation-specific fields (only for type === "Compensation")
-  compensation?: {
-    reason: string;
-    compensation: string;
-    signature: string;
-  };
-};
-
 type BusinessDataCache = {
-  workLog: WorkLogEntry[];
   history: ActivityHistoryEntry[];
   taskLists: TaskList[];
   cachedAt: string;
@@ -199,16 +159,11 @@ function readBusinessDataCache(userId: string): BusinessDataCache | null {
 
   try {
     const parsed = JSON.parse(raw) as Partial<BusinessDataCache>;
-    if (
-      !Array.isArray(parsed.workLog) ||
-      !Array.isArray(parsed.history) ||
-      !Array.isArray(parsed.taskLists)
-    ) {
+    if (!Array.isArray(parsed.history) || !Array.isArray(parsed.taskLists)) {
       return null;
     }
 
     return {
-      workLog: parsed.workLog,
       history: parsed.history,
       taskLists: parsed.taskLists,
       cachedAt:
@@ -338,10 +293,6 @@ const initialRoutines: Routine[] = [
   },
 ];
 
-const initialWorkLog: WorkLogEntry[] = [
-  // no initial entries
-];
-
 const workers = [
   { name: "Dennis", role: "Manager" },
   { name: "Emma", role: "Supervisor" },
@@ -358,15 +309,6 @@ export default function WorkplaceRoutinesDemoStyle() {
   const { error: sessionError, user: supabaseUser, isConfigError } =
     useSupabaseSession();
   const [businessPersistenceReady, setBusinessPersistenceReady] = useState(false);
-
-  const [workLog, setWorkLog] = useState<WorkLogEntry[]>(initialWorkLog);
-
-  // compensation dialog state
-  const [isCompDialogOpen, setIsCompDialogOpen] = useState(false);
-  const [compReason, setCompReason] = useState("");
-  const [compCompensation, setCompCompensation] = useState("");
-  const [compSignature, setCompSignature] = useState("");
-  const [editingCompId, setEditingCompId] = useState<number | null>(null);
 
   // when entering inventory view, start at main selection
   useEffect(() => {
@@ -421,18 +363,9 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [routines] = useState<Routine[]>(initialRoutines);
   const [selectedRoutineId] = useState<number>(2);
   const [taskFilter, setTaskFilter] = useState<"All" | Frequency>("All");
-  const [logSearch, setLogSearch] = useState("");
-  const [logTypeFilter, setLogTypeFilter] = useState<LogType | "All">("Batch Tracing");
 
   const [routineTasks, setRoutineTasks] = useState<Task[]>([]);
   const [hasLoadedRoutineTasks, setHasLoadedRoutineTasks] = useState(false);
-  const [hasLoadedWorkLog, setHasLoadedWorkLog] = useState(false);
-
-  // state for Avvik dialog
-  const [isAvvikDialogOpen, setIsAvvikDialogOpen] = useState(false);
-  const [avvikType, setAvvikType] = useState("feillaget");
-  const [productType, setProductType] = useState("stor");
-  const [employee, setEmployee] = useState("");
 
   const [history, setHistory] = useState<ActivityHistoryEntry[]>([]);
   const [hasLoadedHistory, setHasLoadedHistory] = useState(false);
@@ -441,11 +374,9 @@ export default function WorkplaceRoutinesDemoStyle() {
   const [hasLoadedTaskLists, setHasLoadedTaskLists] = useState(false);
   const [selectedListId, setSelectedListId] = useState<number | null>(null);
   const skipNextTaskListSaveRef = useRef(false);
-  const latestWorkLogRef = useRef(workLog);
   const latestHistoryRef = useRef(history);
   const latestTaskListsRef = useRef(taskLists);
   const latestRoutineTasksRef = useRef(routineTasks);
-  const lastSyncedWorkLogRef = useRef<WorkLogEntry[]>([]);
   const lastSyncedHistoryRef = useRef<ActivityHistoryEntry[]>([]);
   const lastSyncedTaskListsRef = useRef<TaskList[]>([]);
   const lastSyncedRoutineTasksRef = useRef<Task[]>([]);
@@ -495,10 +426,6 @@ export default function WorkplaceRoutinesDemoStyle() {
   };
 
   useEffect(() => {
-    latestWorkLogRef.current = workLog;
-  }, [workLog]);
-
-  useEffect(() => {
     latestHistoryRef.current = history;
   }, [history]);
 
@@ -523,28 +450,18 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     let isMounted = true;
     const cachedBusinessData = readBusinessDataCache(supabaseUser.id);
-    const cachedWorkLogEntries = getCachedWorkLogEntries();
     const cachedHistoryEntries = getCachedActivityHistoryEntries();
 
     setBusinessPersistenceReady(false);
 
     if (cachedBusinessData) {
-      setWorkLog(cachedBusinessData.workLog);
       setHistory(cachedBusinessData.history);
       replaceTaskListsFromRemote(cachedBusinessData.taskLists);
-      setHasLoadedWorkLog(true);
       setHasLoadedHistory(true);
       setHasLoadedTaskLists(true);
-      lastSyncedWorkLogRef.current = cachedBusinessData.workLog;
       lastSyncedHistoryRef.current = cachedBusinessData.history;
       lastSyncedTaskListsRef.current = cachedBusinessData.taskLists;
     } else {
-      if (cachedWorkLogEntries) {
-        setWorkLog(cachedWorkLogEntries);
-        setHasLoadedWorkLog(true);
-        lastSyncedWorkLogRef.current = cachedWorkLogEntries;
-      }
-
       if (cachedHistoryEntries) {
         setHistory(cachedHistoryEntries);
         setHasLoadedHistory(true);
@@ -554,11 +471,10 @@ export default function WorkplaceRoutinesDemoStyle() {
 
     const loadBusinessData = async () => {
       try {
-        const [loadedWorkLog, loadedHistory, loadedTaskLists] = await runBackgroundSync(
+        const [loadedHistory, loadedTaskLists] = await runBackgroundSync(
           async () => {
             await ensureLegacyBusinessDataMigrated();
             return Promise.all([
-              fetchWorkLogEntries(),
               fetchActivityHistoryEntries(),
               loadTaskListsFromStoreEvent(),
             ]);
@@ -572,18 +488,14 @@ export default function WorkplaceRoutinesDemoStyle() {
           return;
         }
 
-        setWorkLog(loadedWorkLog);
         setHistory(loadedHistory);
         replaceTaskListsFromRemote(loadedTaskLists);
-        setHasLoadedWorkLog(true);
         setHasLoadedHistory(true);
         setHasLoadedTaskLists(true);
         setBusinessPersistenceReady(true);
-        lastSyncedWorkLogRef.current = loadedWorkLog;
         lastSyncedHistoryRef.current = loadedHistory;
         lastSyncedTaskListsRef.current = loadedTaskLists;
         writeBusinessDataCache(supabaseUser.id, {
-          workLog: loadedWorkLog,
           history: loadedHistory,
           taskLists: loadedTaskLists,
           cachedAt: new Date().toISOString(),
@@ -611,12 +523,11 @@ export default function WorkplaceRoutinesDemoStyle() {
   }, [supabaseUser]);
 
   useEffect(() => {
-    if (!supabaseUser || !hasLoadedWorkLog || !hasLoadedHistory || !hasLoadedTaskLists) {
+    if (!supabaseUser || !hasLoadedHistory || !hasLoadedTaskLists) {
       return;
     }
 
     writeBusinessDataCache(supabaseUser.id, {
-      workLog,
       history,
       taskLists,
       cachedAt: new Date().toISOString(),
@@ -624,11 +535,9 @@ export default function WorkplaceRoutinesDemoStyle() {
   }, [
     hasLoadedHistory,
     hasLoadedTaskLists,
-    hasLoadedWorkLog,
     history,
     supabaseUser,
     taskLists,
-    workLog,
   ]);
 
   useEffect(() => {
@@ -741,37 +650,6 @@ export default function WorkplaceRoutinesDemoStyle() {
   }, [hasLoadedRoutineTasks, routineTasks, routines, selectedRoutineId, supabaseUser]);
 
   useEffect(() => {
-    if (!businessPersistenceReady || !hasLoadedWorkLog || !supabaseUser) {
-      return;
-    }
-
-    if (workLog === lastSyncedWorkLogRef.current) {
-      return;
-    }
-
-    const pendingWorkLog = workLog;
-    const previousWorkLog = lastSyncedWorkLogRef.current;
-    const timeout = window.setTimeout(() => {
-      void runBackgroundSync(() => saveWorkLogEntries(pendingWorkLog), {
-        errorMessage: "Kunne ikke lagre arbeidsloggen. Siste mislykkede endring ble rullet tilbake.",
-        onError: () => {
-          if (latestWorkLogRef.current === pendingWorkLog) {
-            setWorkLog(previousWorkLog);
-          }
-        },
-      })
-        .then(() => {
-          if (latestWorkLogRef.current === pendingWorkLog) {
-            lastSyncedWorkLogRef.current = pendingWorkLog;
-          }
-        })
-        .catch(() => undefined);
-    }, 250);
-
-    return () => window.clearTimeout(timeout);
-  }, [businessPersistenceReady, hasLoadedWorkLog, supabaseUser, workLog]);
-
-  useEffect(() => {
     if (!businessPersistenceReady || !hasLoadedHistory || !supabaseUser) {
       return;
     }
@@ -882,17 +760,6 @@ export default function WorkplaceRoutinesDemoStyle() {
     });
   }, [selectedRoutine, taskFilter, routineTasks]);
 
-  const filteredLogs = useMemo(() => {
-    return workLog.filter((entry) => {
-      const searchMatch =
-        entry.title.toLowerCase().includes(logSearch.toLowerCase()) ||
-        entry.author.toLowerCase().includes(logSearch.toLowerCase());
-
-      const typeMatch = logTypeFilter === "All" ? true : entry.type === logTypeFilter;
-      return searchMatch && typeMatch;
-    });
-  }, [workLog, logSearch, logTypeFilter]);
-
   const findList = (listId: number) => taskLists.find((l) => l.id === listId);
 
   const selectedList = selectedListId != null ? findList(selectedListId) : null;
@@ -930,152 +797,6 @@ export default function WorkplaceRoutinesDemoStyle() {
     }
 
     return `Monthly (day ${list.resetDayOfMonth ?? 1}) at ${list.resetTime}`;
-  };
-
-  // helpers for log manipulation
-  const nextLogId = () => Math.max(0, ...workLog.map((e) => e.id)) + 1;
-
-  const addLogEntry = (defaultType?: LogType) => {
-    if (!requireAdmin()) return;
-    if (defaultType === "Deviation") {
-      setIsAvvikDialogOpen(true);
-    } else if (defaultType === "Compensation") {
-      // open the compensation dialog with blank fields
-      setCompReason("");
-      setCompCompensation("");
-      setCompSignature("");
-      setEditingCompId(null);
-      setIsCompDialogOpen(true);
-    } else {
-      // General flow
-      const title = window.prompt("Title", "");
-      if (!title) return;
-      const details = window.prompt("Details", "") || "";
-      const type = (window.prompt(
-                "Type (LOT-sporing / Avvik / Kompensasjoner / Annet)",
-        defaultType || "Batch Tracing"
-      ) as LogType) || defaultType || "Batch Tracing";
-      const author = window.prompt("Author", "") || "";
-      const date = new Date().toISOString();
-      const pillsInput = window.prompt("Pills (comma-separated)", "") || "";
-      const pills = pillsInput ? pillsInput.split(",").map((s) => s.trim()) : [];
-
-      setWorkLog((cur) => [
-        ...cur,
-        { id: nextLogId(), title, details, type, author, date, pills },
-      ]);
-      setHistory((prev) => [
-        createActivityHistoryEntry(`La til ny ${type}-oppføring: ${title}`, "Arbeidslogg", undefined, date),
-        ...prev,
-      ]);
-    }
-  };
-
-  const editLogEntry = (entry: WorkLogEntry) => {
-    if (!requireAdmin()) return;
-    if (entry.type === "Compensation") {
-      // open compensation dialog pre-filled
-      setEditingCompId(entry.id);
-      setCompReason(entry.compensation?.reason || "");
-      setCompCompensation(entry.compensation?.compensation || "");
-      setCompSignature(entry.compensation?.signature || entry.author || "");
-      setIsCompDialogOpen(true);
-    } else {
-      const title = window.prompt("Title", entry.title) || entry.title;
-      const details = window.prompt("Details", entry.details) || entry.details;
-      const type =
-        (window.prompt(
-          "Type (LOT-sporing / Avvik / Kompensasjoner / Annet)",
-          entry.type
-        ) as LogType) || entry.type;
-      const author = window.prompt("Author", entry.author) || entry.author;
-      const pillsInput =
-        window.prompt("Pills (comma-separated)", entry.pills?.join(",") || "") ||
-        "";
-      const pills = pillsInput ? pillsInput.split(",").map((s) => s.trim()) : [];
-
-      setWorkLog((cur) =>
-        cur.map((e) =>
-          e.id === entry.id ? { ...e, title, details, type, author, pills } : e
-        )
-      );
-      setHistory((prev) => [
-        createActivityHistoryEntry(`Redigerte ${entry.type}-oppføring: ${entry.title}`, "Arbeidslogg"),
-        ...prev,
-      ]);
-    }
-  };
-
-  const deleteLogEntry = (id: number) => {
-    if (!requireAdmin()) return;
-    const entry = workLog.find(e => e.id === id);
-    if (window.confirm("Slette denne oppføringen?")) {
-      setWorkLog((cur) => cur.filter((e) => e.id !== id));
-      if (entry) {
-        setHistory((prev) => [
-          createActivityHistoryEntry(`Slettet ${entry.type}-oppføring: ${entry.title}`, "Arbeidslogg"),
-          ...prev,
-        ]);
-      }
-    }
-  };
-
-  const submitAvvikEntry = () => {
-    if (!employee.trim()) return;
-    const date = new Date().toISOString();
-    const title = `Avvik: ${avvikType} - ${productType}`;
-    const details = `Employee: ${employee}`;
-
-    setWorkLog((cur) => [
-      ...cur,
-      { id: nextLogId(), title, details, type: "Deviation", author: employee, date, pills: [] },
-    ]);
-    setHistory((prev) => [
-      createActivityHistoryEntry(`La til ny avviksoppføring: ${title}`, "Arbeidslogg", undefined, date),
-      ...prev,
-    ]);
-    setIsAvvikDialogOpen(false);
-    setEmployee(""); // reset
-  };
-
-  const submitCompEntry = () => {
-    if (!compReason.trim()) return;
-    const date = new Date().toISOString();
-    const entry: WorkLogEntry = {
-      id: editingCompId != null ? editingCompId : nextLogId(),
-      type: "Compensation",
-      title: compReason,
-      date: editingCompId != null ? workLog.find((e) => e.id === editingCompId)?.date || date : date,
-      author: compSignature,
-      details: "",
-      compensation: {
-        reason: compReason,
-        compensation: compCompensation,
-        signature: compSignature,
-      },
-    };
-
-    if (editingCompId != null) {
-      setWorkLog((cur) =>
-        cur.map((e) => (e.id === editingCompId ? entry : e))
-      );
-      setHistory((prev) => [
-        createActivityHistoryEntry(`Redigerte kompensasjonsoppføring: ${entry.title}`, "Arbeidslogg", undefined, date),
-        ...prev,
-      ]);
-    } else {
-      setWorkLog((cur) => [...cur, entry]);
-      setHistory((prev) => [
-        createActivityHistoryEntry(`La til ny kompensasjonsoppføring: ${entry.title}`, "Arbeidslogg", undefined, date),
-        ...prev,
-      ]);
-    }
-
-    setIsCompDialogOpen(false);
-    setCompReason("");
-    setCompCompensation("");
-    setCompSignature("");
-    setEditingCompId(null);
   };
 
   const toggleTask = (taskId: number) => {
@@ -1556,18 +1277,7 @@ export default function WorkplaceRoutinesDemoStyle() {
   const selectedCompleted = routineTasks.filter((task) => task.completed).length;
   const selectedTotal = routineTasks.length;
 
-  const logStats = useMemo(
-    () => ({
-      deviations: workLog.filter((item) => item.type === "Deviation").length,
-      batch: workLog.filter((item) => item.type === "Batch Tracing").length,
-      compensation: workLog.filter((item) => item.type === "Compensation").length,
-      other: workLog.filter((item) => item.type === "Other").length,
-    }),
-    [workLog]
-  );
-
   const showTaskListLoadingSkeletons = !hasLoadedTaskLists && taskLists.length === 0;
-  const showWorkLogLoadingSkeletons = !hasLoadedWorkLog && workLog.length === 0;
   const showHistoryLoadingSkeleton = !hasLoadedHistory && history.length === 0;
 
   if (sessionError && isConfigError) {
@@ -1619,10 +1329,6 @@ export default function WorkplaceRoutinesDemoStyle() {
               <span className="mt-2 block">Historikk</span>
             </div>
             <div>
-              <BookOpen className="mx-auto h-8 w-8 opacity-50" />
-              <span className="mt-2 block">Arbeidslogg</span>
-            </div>
-            <div>
               <Users className="mx-auto h-8 w-8 opacity-50" />
               <span className="mt-2 block">Ansatte</span>
             </div>
@@ -1649,11 +1355,14 @@ export default function WorkplaceRoutinesDemoStyle() {
             </div>
           )}
           <header className="border-b border-primary/15 bg-background">
+            <div className="mx-auto max-w-7xl px-6">
+              <div className="mb-3 h-1 w-14 rounded-full bg-accent shadow-[0_0_0_1px_rgba(255,218,117,0.18)] sm:w-20" />
+            </div>
             <div className="mx-auto max-w-7xl px-6 py-4">
               <div className="flex flex-col gap-4">
                 <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-primary/15 bg-primary/10">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-accent/35 bg-accent/15">
                       <ClipboardList className="h-5 w-5 text-primary" />
                     </div>
                     <div>
@@ -1667,9 +1376,8 @@ export default function WorkplaceRoutinesDemoStyle() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 border-t border-primary/10 pt-3">
+                <div className="flex flex-wrap items-center gap-2 border-t border-accent/25 pt-3">
                   {[
-                    { key: "work-log", label: "Arbeidslogg", icon: BookOpen },
                     { key: "compensation", label: "Kompensasjon", icon: HandCoins },
                     { key: "inventory", label: "Lager", icon: Package },
                     { key: "workers", label: "Ansatte", icon: Users },
@@ -1681,10 +1389,10 @@ export default function WorkplaceRoutinesDemoStyle() {
                         key={item.key}
                         variant="outline"
                         className={cn(
-                          "h-9 rounded-lg border px-3 text-sm",
+                          "h-9 rounded-lg border px-3 text-sm transition-all focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2",
                           isActive
-                            ? "border-primary bg-primary text-primary-foreground hover:bg-primary/90"
-                            : "border-primary/15 bg-white text-foreground/80 hover:border-accent/40 hover:bg-accent/20 hover:text-foreground"
+                            ? "border-accent/45 bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,218,117,0.25)] hover:bg-primary/90"
+                            : "border-primary/15 bg-white text-foreground/80 hover:border-accent/50 hover:bg-accent/15 hover:text-foreground"
                         )}
                         onClick={() => setView(item.key as View)}
                       >
@@ -1755,9 +1463,9 @@ export default function WorkplaceRoutinesDemoStyle() {
                 <button
                   type="button"
                   onClick={promptNewList}
-                  className="group flex min-h-[148px] flex-col items-center justify-center rounded-2xl border border-dashed border-primary/25 bg-white px-4 py-5 text-center transition-colors hover:border-accent/50 hover:bg-accent/10"
+                  className="group flex min-h-[148px] flex-col items-center justify-center rounded-2xl border border-dashed border-primary/25 bg-white px-4 py-5 text-center transition-colors hover:border-accent/50 hover:bg-accent/10 focus-visible:ring-2 focus-visible:ring-accent/40 focus-visible:ring-offset-2"
                 >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full border border-primary/20 bg-primary/10 text-primary transition-colors group-hover:bg-accent/30">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-full border border-accent/30 bg-accent/20 text-primary transition-colors group-hover:bg-accent/35 group-hover:text-foreground">
                     <Plus className="h-5 w-5" />
                   </div>
                   <span className="mt-2 text-sm font-semibold text-primary">Ny liste</span>
@@ -1929,271 +1637,6 @@ export default function WorkplaceRoutinesDemoStyle() {
                 />
               ))}
             </div>
-          </main>
-        </div>
-      )}
-
-      {view === "work-log" && (
-        <div>
-          <header className="border-b border-slate-200 bg-white">
-            <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 lg:flex-row lg:items-start lg:justify-between">
-              <div className="flex items-start gap-5">
-                <button
-                  onClick={() => setView("overview")}
-                  className="mt-4 flex items-center gap-2 text-xl text-slate-500 hover:text-slate-900"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  Tilbake
-                </button>
-
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent-gold-muted">
-                  <BookOpen className="h-8 w-8 text-accent-gold" />
-                </div>
-
-                <div>
-                  <h1 className="text-4xl font-bold tracking-tight">Arbeidslogg</h1>
-                  <p className="mt-1 text-2xl text-slate-500">
-                    Avvik, LOT-sporing & kompensaasjoner
-                  </p>
-                </div>
-              </div>
-
-              {user?.role === "admin" ? (
-                <Button
-                  className="h-14 rounded-2xl bg-primary px-6 text-2xl hover:bg-primary/90"
-                  onClick={() => addLogEntry()}
-                >
-                  <Plus className="mr-3 h-6 w-6" />
-                  New Entry
-                </Button>
-              ) : (
-                <Button
-                  className="h-14 rounded-2xl bg-primary/20 px-6 text-2xl"
-                  disabled
-                >
-                  <Plus className="mr-3 h-6 w-6" />
-                  New Entry (admin only)
-                </Button>
-              )}
-            </div>
-          </header>
-
-          <main className="mx-auto max-w-7xl px-6 py-10">
-            <div className="mb-8 grid gap-4 lg:grid-cols-[1fr_290px]">
-              <div className="relative">
-                <Search className="absolute left-5 top-1/2 h-6 w-6 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={logSearch}
-                  onChange={(e) => setLogSearch(e.target.value)}
-                  placeholder="Søk i oppføringer..."
-                  className="h-16 rounded-2xl border-slate-200 bg-white pl-16 text-2xl"
-                />
-              </div>
-
-              <AppSelect
-                value={logTypeFilter}
-                onValueChange={(nextValue) =>
-                  setLogTypeFilter(nextValue as LogType | "All")
-                }
-                options={logTypeFilterOptions}
-                size="lg"
-                triggerLabel="Entry type"
-              />
-            </div>
-
-            {showWorkLogLoadingSkeletons ? (
-              <>
-                <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  {Array.from({ length: 4 }, (_, index) => (
-                    <LoadingSkeletonCard
-                      key={`work-log-stat-skeleton-${index}`}
-                      title="Laster arbeidslogg"
-                      description="Fetching counts and recent entries from Supabase."
-                    />
-                  ))}
-                </div>
-                <div className="space-y-5">
-                  {Array.from({ length: 3 }, (_, index) => (
-                    <LoadingSkeletonCard
-                      key={`work-log-entry-skeleton-${index}`}
-                      title="Laster oppføring"
-                      description="Recent work-log entries will appear here."
-                    />
-                  ))}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                  <Card className="rounded-3xl border border-slate-200 bg-white">
-                    <CardContent className="p-6">
-                      <div className="text-5xl font-bold text-red-500">{logStats.deviations}</div>
-                      <div className="mt-2 text-xl text-slate-500">Avvik</div>
-                      <div className="mt-4">
-                        {user?.role === "admin" ? (
-                          <Button onClick={() => addLogEntry("Deviation")} className="w-full h-10 text-lg" asChild>
-                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                              New Entry
-                            </motion.button>
-                          </Button>
-                        ) : (
-                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                            Login as admin to add
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-3xl border-2 border-primary bg-white">
-                    <CardContent className="p-6">
-                      <div className="text-5xl font-bold text-primary">{logStats.batch}</div>
-                      <div className="mt-2 text-xl text-slate-500">LOT-sporing</div>
-                      <div className="mt-4">
-                        {user?.role === "admin" ? (
-                          <Button onClick={() => addLogEntry("Batch Tracing")} className="w-full h-10 text-lg" asChild>
-                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                              New Entry
-                            </motion.button>
-                          </Button>
-                        ) : (
-                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                            Login as admin to add
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-3xl border border-slate-200 bg-white">
-                    <CardContent className="p-6">
-                      <div className="text-5xl font-bold text-accent-gold">{logStats.compensation}</div>
-                      <div className="mt-2 text-xl text-slate-500">Kompensasjoner</div>
-                      <div className="mt-4">
-                        {user?.role === "admin" ? (
-                          <Button onClick={() => addLogEntry("Compensation")} className="w-full h-10 text-lg" asChild>
-                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                              New Entry
-                            </motion.button>
-                          </Button>
-                        ) : (
-                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                            Login as admin to add
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-
-                  <Card className="rounded-3xl border border-slate-200 bg-white">
-                    <CardContent className="p-6">
-                      <div className="text-5xl font-bold text-slate-600">{logStats.other}</div>
-                      <div className="mt-2 text-xl text-slate-500">Annet</div>
-                      <div className="mt-4">
-                        {user?.role === "admin" ? (
-                          <Button onClick={() => addLogEntry("Other")} className="w-full h-10 text-lg" asChild>
-                            <motion.button whileTap={{ scale: 0.95 }} whileHover={{ scale: 1.05 }}>
-                              New Entry
-                            </motion.button>
-                          </Button>
-                        ) : (
-                          <Button className="w-full h-10 text-lg bg-gray-300" disabled>
-                            Login as admin to add
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-
-                <div className="space-y-5">
-                  {filteredLogs.map((entry) => (
-                    <Card
-                      key={entry.id}
-                      className={
-                        "rounded-3xl border border-slate-200 border-l-4 bg-white " +
-                        (entry.type === "Deviation"
-                          ? "border-l-red-500"
-                          : entry.type === "Batch Tracing"
-                          ? "border-l-primary"
-                          : entry.type === "Compensation"
-                          ? "border-l-accent-gold"
-                          : "border-l-slate-400")
-                      }
-                    >
-                      <CardContent className="p-6">
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex min-w-0 gap-4">
-                            <div className="pt-1 text-slate-500">
-                              <Package className="h-6 w-6" />
-                            </div>
-
-                            <div className="min-w-0">
-                              <div className="mb-3 flex flex-wrap items-center gap-3 text-lg text-slate-500">
-                                <Badge className="rounded-full border-0 bg-accent-gold-muted px-4 py-1 text-base text-accent-gold">
-                                  {entry.type}
-                                </Badge>
-                                <span>{formatTimestamp(entry.date)}</span>
-                                <span>·</span>
-                                <span>{entry.author}</span>
-                              </div>
-
-                              <h3 className="mb-3 text-3xl font-semibold">{entry.title}</h3>
-                              {entry.type === "Compensation" && entry.compensation ? (
-                                <div className="mb-3 space-y-2 rounded-md border border-accent-gold-muted bg-accent-gold-muted/50 p-4">
-                                  <div>
-                                    <strong>Hva skjedde:</strong> {entry.compensation.reason}
-                                  </div>
-                                  <div>
-                                    <strong>Kompensasjon:</strong> {entry.compensation.compensation}
-                                  </div>
-                                  <div>
-                                    <strong>Signatur:</strong> {entry.compensation.signature}
-                                  </div>
-                                </div>
-                              ) : (
-                                <p className="mb-3 text-xl text-slate-500">{entry.details}</p>
-                              )}
-
-                              <div className="flex flex-wrap gap-2">
-                                {entry.pills?.map((pill) => (
-                                  <Badge
-                                    key={pill}
-                                    variant="outline"
-                                    className="rounded-lg border-primary/20 bg-primary/10 px-3 py-1 text-base text-primary/70"
-                                  >
-                                    {pill}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-4">
-                            {user?.role === "admin" && (
-                              <>
-                                <button
-                                  onClick={() => editLogEntry(entry)}
-                                  className="text-slate-700 hover:text-slate-900"
-                                >
-                                  <PenLine className="h-6 w-6" />
-                                </button>
-                                <button
-                                  onClick={() => deleteLogEntry(entry.id)}
-                                  className="text-red-500 hover:text-red-600"
-                                >
-                                  <Trash2 className="h-6 w-6" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </>
-            )}
           </main>
         </div>
       )}
@@ -2427,59 +1870,6 @@ export default function WorkplaceRoutinesDemoStyle() {
           <TaskListHistory listId={selectedList.id} />
         </HistoryPageShell>
       )}
-
-      <Dialog open={isAvvikDialogOpen} onOpenChange={setIsAvvikDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Loggfør avvik</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Type avvik</label>
-              <Select value={avvikType} onValueChange={setAvvikType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="feillaget">feillaget</SelectItem>
-                  <SelectItem value="ødelagt">ødelagt</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Produkttype</label>
-              <Select value={productType} onValueChange={setProductType}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stor">stor</SelectItem>
-                  <SelectItem value="medium">medium</SelectItem>
-                  <SelectItem value="liten">liten</SelectItem>
-                  <SelectItem value="tynn">tynn</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Ansattnavn</label>
-              <Input
-                value={employee}
-                onChange={(e) => setEmployee(e.target.value)}
-                placeholder="Skriv inn ansattnavn"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitAvvikEntry();
-                  }
-                }}
-              />
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button onClick={submitAvvikEntry}>Lagre</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* deletion confirmation modal */}
       <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
@@ -2737,50 +2127,6 @@ export default function WorkplaceRoutinesDemoStyle() {
         onSubmit={handleTaskDialogSubmit}
       />
 
-      <Dialog open={isCompDialogOpen} onOpenChange={setIsCompDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{editingCompId != null ? "Rediger kompensasjon" : "Ny kompensasjon"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Hva skjedde</label>
-              <Textarea
-                value={compReason}
-                onChange={(e) => setCompReason(e.target.value)}
-                placeholder="Beskriv hva som skjedde"
-                rows={3}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Kompensasjon</label>
-              <Textarea
-                value={compCompensation}
-                onChange={(e) => setCompCompensation(e.target.value)}
-                placeholder="Hva ble gitt i kompensasjon"
-                rows={2}
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Signatur</label>
-              <Input
-                value={compSignature}
-                onChange={(e) => setCompSignature(e.target.value)}
-                placeholder="Signer ditt navn"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    submitCompEntry();
-                  }
-                }}
-              />
-            </div>
-            <div className="mt-4 flex justify-end">
-              <Button onClick={submitCompEntry}>{editingCompId != null ? "Oppdater" : "Lagre"}</Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
