@@ -1,0 +1,232 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  :root {
+    /* legacy semantic tokens (used by some internal utilities) */
+    --color-background: #f9fafb;
+    --color-surface: #ffffff;
+    --color-surface-muted: #f3f4f6;
+    --color-text-primary: #111827;
+    --color-text-secondary: #4b5563;
+    --color-border: #e5e7eb;
+    --color-brand-primary: #771816;
+    --color-brand-primary-hover: #6a1415;
+    --color-brand-primary-active: #5c1214;
+    --color-accent-gold: #FFDA75;
+    --color-accent-gold-muted: #fce9b2;
+    --color-focus: #771816;
+    --color-badge-priority: #FFDA75;
+    --color-card-accent: #771816;
+
+    /* shadcn/ui theme tokens */
+    --background: #f9fafb; /* light neutral page background */
+    --foreground: #111827; /* dark charcoal text */
+    --primary: #771816; /* deep red brand */
+    --primary-foreground: #ffffff;
+    --accent: #FFDA75; /* warm gold highlight */
+    --accent-foreground: #000000;
+    --primary-hover: #6a1415;
+    --accent-hover: rgba(255,218,117,0.9);
+    --border: #e5e7eb; /* soft neutral gray */
+    --muted: #f3f4f6; /* light muted surface */
+  }
+
+  * {
+    /* fallback neutral border for un-themed elements */
+    border-color: var(--color-border);
+  }
+
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    /* fallback to direct variable references so Tailwind build won't error if semantic tokens aren't available */
+    background-color: var(--color-background);
+    color: var(--color-text-primary);
+    @apply antialiased font-sans;
+    line-height: 1.65;
+  }
+} 
+
+/* component utilities */
+@layer components {
+  .card {
+    @apply rounded-lg border p-6 transition-shadow;
+    background-color: var(--color-surface);
+    color: var(--color-text-primary);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  } /* unchanged - uses legacy tokens */
+
+  .card:hover {
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all text-white;
+    background-color: var(--primary);
+  }
+  .btn-primary:hover {
+    background-color: var(--primary-hover, #6a1415);
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all text-black;
+    background-color: var(--accent);
+  }
+  .btn-secondary:hover {
+    background-color: var(--accent-hover, rgba(255,218,117,0.9));
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all;
+    color: var(--color-text-primary);
+  }
+  .btn-ghost:hover {
+    background-color: var(--color-surface-muted);
+  }
+
+  .input {
+    @apply h-10 w-full rounded-md border px-3 py-2 text-base;
+    /* placeholder color */
+    --placeholder-color: var(--color-text-secondary);
+    &::placeholder {
+      color: var(--placeholder-color);
+    }
+    background-color: var(--color-surface);
+    border-color: var(--color-border);
+  }
+  .input:focus {
+    border-color: #771816; /* brand primary */
+    ring-color: rgba(119,24,22,0.5);
+    @apply ring-2;
+  }
+
+
+  .table {
+    @apply w-full border-collapse;
+  }
+
+  .table th,
+  .table td {
+    @apply px-4 py-2 text-left;
+  }
+
+  .table thead th {
+    @apply bg-slate-100 text-sm font-semibold text-slate-600;
+  }
+
+  .table tbody tr:hover {
+    @apply bg-slate-50;
+  }
+}
+
+@layer utilities {
+  .bg-background {
+    background-color: var(--background);
+  }
+
+  .bg-muted {
+    background-color: var(--muted);
+  }
+
+  .bg-primary {
+    background-color: var(--primary);
+  }
+
+  .bg-primary\/10 {
+    background-color: rgba(119, 24, 22, 0.1);
+  }
+
+  .bg-primary\/20 {
+    background-color: rgba(119, 24, 22, 0.2);
+  }
+
+  .bg-accent {
+    background-color: var(--accent);
+  }
+
+  .bg-accent\/20 {
+    background-color: rgba(255, 218, 117, 0.2);
+  }
+
+  .text-foreground {
+    color: var(--foreground);
+  }
+
+  .text-foreground\/40 {
+    color: rgba(17, 24, 39, 0.4);
+  }
+
+  .text-foreground\/60 {
+    color: rgba(17, 24, 39, 0.6);
+  }
+
+  .text-foreground\/70 {
+    color: rgba(17, 24, 39, 0.7);
+  }
+
+  .text-primary {
+    color: var(--primary);
+  }
+
+  .text-primary\/70 {
+    color: rgba(119, 24, 22, 0.7);
+  }
+
+  .text-primary-foreground {
+    color: var(--primary-foreground);
+  }
+
+  .text-accent-foreground {
+    color: var(--accent-foreground);
+  }
+
+  .border-border {
+    border-color: var(--border);
+  }
+
+  .border-primary {
+    border-color: var(--primary);
+  }
+
+  .border-primary\/15 {
+    border-color: rgba(119, 24, 22, 0.15);
+  }
+
+  .border-primary\/20 {
+    border-color: rgba(119, 24, 22, 0.2);
+  }
+
+  .border-primary\/25 {
+    border-color: rgba(119, 24, 22, 0.25);
+  }
+
+  .border-accent\/30 {
+    border-color: rgba(255, 218, 117, 0.3);
+  }
+
+  .border-accent\/40 {
+    border-color: rgba(255, 218, 117, 0.4);
+  }
+
+  .hover\:bg-primary\/90:hover {
+    background-color: rgba(119, 24, 22, 0.9);
+  }
+
+  .hover\:bg-accent\/90:hover {
+    background-color: rgba(255, 218, 117, 0.9);
+  }
+
+  .hover\:bg-muted:hover {
+    background-color: var(--muted);
+  }
+
+  .hover\:text-foreground:hover {
+    color: var(--foreground);
+  }
+}
