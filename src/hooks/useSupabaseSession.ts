@@ -158,25 +158,11 @@ export async function ensureSupabaseSessionState(): Promise<SupabaseSessionState
         return nextState;
       }
 
-      const { data, error: signInError } = await supabase.auth.signInAnonymously();
-      if (signInError) {
-        console.error("[supabase] signInAnonymously error", signInError);
-        const nextState = {
-          loading: false,
-          error: formatSupabaseAuthError("Supabase anonymous sign-in", signInError),
-          session: null,
-          user: null,
-          isConfigError: false,
-        } satisfies SupabaseSessionState;
-        updateSupabaseSessionState(nextState);
-        return nextState;
-      }
-
       const nextState = {
         loading: false,
         error: null,
-        session: data.session ?? null,
-        user: data.session?.user ?? null,
+        session: null,
+        user: null,
         isConfigError: false,
       } satisfies SupabaseSessionState;
       updateSupabaseSessionState(nextState);

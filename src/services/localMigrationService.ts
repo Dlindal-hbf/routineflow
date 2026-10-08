@@ -194,6 +194,9 @@ async function runMigration() {
   }
 
   const userId = await requireSupabaseUserId();
+  // Legacy browser data has no account key. Import only after the old session
+  // has been explicitly recovered, never into a different newly signed-in user.
+  if (localStorage.getItem("routineflow-legacy-owner") !== userId) return;
   const migrationKey = getMigrationKey(userId);
   const migrationSessionKey = getMigrationSessionKey(userId);
 

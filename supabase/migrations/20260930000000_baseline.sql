@@ -1,6 +1,6 @@
--- Baseline only. REQUIRED: apply all three 20261005 migrations in order.
+-- Baseline only. REQUIRED after this file: apply migrations/20261005000000_approval_auth.sql.
 -- The baseline alone does not enforce account approval. Read the migration's
--- deployment notes and AUTH_SETUP.md before rollout; legacy owners must be upgraded.
+-- deployment notes before rollout; existing accounts become pending.
 create extension if not exists pgcrypto;
 
 create or replace function public.set_updated_at()
@@ -466,5 +466,6 @@ create policy "Users can delete own activity history entries"
 on public.activity_history_entries
 for delete
 using (auth.uid() = user_id);
+
 
 
