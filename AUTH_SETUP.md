@@ -24,38 +24,21 @@ The existing baseline is [setup.sql](./supabase/setup.sql); do not rerun it as a
 
 The identity preparation migration backfills profiles as pending without deleting users or business rows. The separate access-enforcement migration must be applied before the new public app goes live. Its legacy-owner preflight deliberately stops rollout if existing data owners would lose access. Upgrade and approve each existing owner first. An inaccessible/dormant identity requires an explicit ownership decision, not automatic approval or a bypass policy.
 
-Apply [identity preparation](./supabase/migrations/20261005000000_approval_auth.sql), [approval enforcement](./supabase/migrations/20261005001000_enforce_approval.sql), and [notification leases](./supabase/migrations/20261005002000_notification_leases.sql), in that order. Pause between preparation and enforcement when the legacy-owner preflight requires it. Restrict the upgrade deployment to existing users during this window; the baseline policies alone are not the final security model.
+Apply [identity preparation](./supabase/migrations/20261005000000_approval_auth.sql), [approval enforcement](./supabase/migrations/20261005001000_enforce_approval.sql), [notification leases](./supabase/migrations/20261005002000_notification_leases.sql), and [account lifecycle hardening](./supabase/migrations/20261008000000_admin_lifecycle.sql), in that order. Pause between preparation and enforcement when the legacy-owner preflight requires it. Restrict the upgrade deployment to existing users during this window; the baseline policies alone are not the final security model.
 
 Never remove the restrictive `application_approval_required` policies to fix an access issue. A pending user seeing no business rows is a security result, not evidence that data was deleted.
 
 ## First Administrator
 
-Register or upgrade your own account, verify its email, then find its UUID under Supabase **Authentication > Users**. Do not use an anonymous UUID without completing the upgrade. In the trusted SQL editor, substitute that verified UUID in this transaction:
+Register or upgrade your own account, verify its email, then find its UUID under Supabase **Authentication > Users**. Do not use an anonymous UUID without completing the upgrade. Run the trusted one-time bootstrap script instead of using a public application endpoint:
 
 ```sql
-begin;
-do $$
-declare
-  account_id uuid := 'REPLACE-WITH-YOUR-VERIFIED-USER-UUID';
-begin
-  if not exists (
-    select 1 from auth.users
-    where id = account_id and email_confirmed_at is not null
-      and is_anonymous = false
-  ) then
-    raise exception 'A verified, nonanonymous account is required';
-  end if;
-  update public.account_profiles
-  set approval_status = 'approved', approved_at = now(), reviewed_at = now()
-  where id = account_id;
-  if not found then raise exception 'Apply profile preparation migration first'; end if;
-  insert into public.account_admins(user_id) values (account_id)
-  on conflict do nothing;
-end $$;
-commit;
+BOOTSTRAP_ADMIN_USER_ID=the-exact-auth-users-UUID \
+BOOTSTRAP_ADMIN_EMAIL=the-verified-email \
+npm run bootstrap:first-admin
 ```
 
-Bootstrap reviewer fields are intentionally null because this is a trusted operator operation. Later approvals record the authenticated reviewer. Add more administrators by approving their verified accounts, then inserting their UUIDs into `account_admins` using the trusted SQL editor. No self-service role editor exists. Do not revoke the last active administrator without first appointing another.
+Run it only from a trusted machine with `SUPABASE_SERVICE_ROLE_KEY` loaded and never expose that key to the browser or commit it. The script verifies that the UUID and email identify the same confirmed, non-anonymous user, upserts the existing profile, and adds that exact UUID to `account_admins`. It is safe to rerun for the same account and does not promote arbitrary registrations. Later approvals are handled through the website; do not revoke the last active administrator without first appointing another.
 
 ## Environment Variables
 

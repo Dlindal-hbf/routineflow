@@ -14,17 +14,18 @@ export default async function AccountStatusPage() {
   if (approved) redirect("/");
   const verified = !!user.email_confirmed_at;
   const rejected = profile?.approval_status === "rejected";
-  const title = !profile ? "Kontotilgang utilgjengelig" : rejected ? "Kontoen har ikke tilgang" : !verified ? "Bekreft e-postadressen din" : "Venter på godkjenning";
+  const suspended = profile?.approval_status === "suspended";
+  const title = !profile ? "Kontotilgang utilgjengelig" : rejected || suspended ? "Kontoen har ikke tilgang" : !verified ? "Bekreft e-postadressen din" : "Venter på godkjenning";
   const description = !profile
     ? "Vi fant ikke en gyldig kontoprofil. Kontakt administrator for å få hjelp."
-    : rejected ? "Forespørselen din er vurdert. Kontoen har foreløpig ikke tilgang til RoutineFlow. Kontakt administrator hvis du mener dette bør vurderes på nytt."
+    : rejected || suspended ? "Kontoen har ikke tilgang til RoutineFlow akkurat nå. Kontakt administrator hvis du mener dette bør vurderes på nytt."
     : !verified ? "Åpne bekreftelseslenken i e-posten vi sendte deg. Administrator må deretter godkjenne tilgangen."
     : "E-postadressen din er bekreftet. Forespørselen ligger til behandling hos administrator. Du får tilgang når kontoen er godkjent.";
   return <AuthShell title={title} description={description}>
     <div className="mb-6 space-y-4 border-y py-5 text-sm">
       <p className="break-all text-foreground/70">{user.email}</p>
       <p className="flex items-center gap-3">{verified ? <Check className="size-5 text-green-700" /> : <Clock3 className="size-5 text-primary" />}{verified ? "E-post bekreftet" : "E-post ikke bekreftet"}</p>
-      <p className="flex items-center gap-3">{rejected ? <ShieldAlert className="size-5 text-primary" /> : <Clock3 className="size-5 text-primary" />}{rejected ? "Tilgang ikke godkjent" : "Tilgang avventer godkjenning"}</p>
+      <p className="flex items-center gap-3">{rejected || suspended ? <ShieldAlert className="size-5 text-primary" /> : <Clock3 className="size-5 text-primary" />}{rejected ? "Tilgang ikke godkjent" : suspended ? "Tilgang suspendert" : "Tilgang avventer godkjenning"}</p>
     </div>
     <div className="flex flex-wrap gap-3">
       <Button asChild className="flex-1"><a href="/account/status">Sjekk status</a></Button>

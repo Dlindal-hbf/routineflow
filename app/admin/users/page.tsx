@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import type { AccountProfile } from "@/src/auth/types";
 
 export const dynamic = "force-dynamic";
-const statuses = { pending: "Venter", approved: "Godkjent", rejected: "Avslått" };
+const statuses = { pending: "Venter", approved: "Godkjent", suspended: "Suspendert", rejected: "Avslått" };
 
 export default async function AdminUsersPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string; request?: string }> }) {
   const { user, profile, supabase } = await requireAdministrator();

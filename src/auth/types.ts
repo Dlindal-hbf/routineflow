@@ -10,7 +10,7 @@ export type AccountProfile = {
   id: string;
   full_name: string | null;
   email: string | null;
-  approval_status: "pending" | "approved" | "rejected";
+  approval_status: "pending" | "approved" | "rejected" | "suspended";
   created_at: string;
   email_verified_at: string | null;
   approved_at: string | null;
