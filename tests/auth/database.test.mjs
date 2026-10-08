@@ -23,6 +23,8 @@ test("PostgreSQL approval policies, role isolation, review audit and legacy upgr
       grant usage on schema public, auth to anon, authenticated, service_role;
       grant execute on function auth.uid() to anon, authenticated, service_role;
       alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+      insert into auth.users(id, email, email_confirmed_at, is_anonymous)
+      values('00000000-0000-4000-8000-000000000010', 'dennis.lindal@live.no', now(), false);
     `);
     const migrations = (await readdir(new URL("../../supabase/migrations/", import.meta.url))).filter((name) => name.endsWith(".sql")).sort();
     for (const name of migrations) {
@@ -45,6 +47,7 @@ test("PostgreSQL approval policies, role isolation, review audit and legacy upgr
       await db.exec(sql.replace("create extension if not exists pgcrypto;", ""));
       if (name.endsWith("_enforce_approval.sql")) await db.exec("delete from auth.users where id='00000000-0000-4000-8000-000000000099'");
     }
+    await db.exec("delete from auth.users where id='00000000-0000-4000-8000-000000000010'");
     const sql = await readFile(new URL("../../supabase/migrations/tests/approval_auth.sql", import.meta.url), "utf8");
     await db.exec(sql);
     const result = await db.query("select count(*)::int as count from public.account_profiles");
