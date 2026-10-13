@@ -30,6 +30,12 @@ test("unauthenticated protected pages redirect, APIs deny access", async ({ page
   expect((await request.get("/api/internal/approval-notifications")).status()).toBe(401);
 });
 
+test("password recovery page is reachable without an ordinary login session", async ({ page }) => {
+  await page.goto("/reset-password");
+  await expect(page).toHaveURL(/\/reset-password$/);
+  await expect(page.getByRole("heading", { name: "Velg nytt passord" })).toBeVisible();
+});
+
 test("registration validates mismatched passwords on the server", async ({ page }) => {
   await page.goto("/register");
   await page.getByLabel("Fullt navn").fill("Test Person");
