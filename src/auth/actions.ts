@@ -62,7 +62,7 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
       }
       return { message: "Hvis kontoen venter på e-postbekreftelse, får du en ny lenke i innboksen." };
     } else if (mode === "forgot") {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${applicationOrigin()}/auth/confirm?next=/reset-password` });
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${applicationOrigin()}/auth/confirm` });
       if (error) {
         logAuthFailure(mode, error);
         return { error: "Tilbakestillingsmeldingen kunne ikke sendes akkurat nå. Prøv igjen senere." };

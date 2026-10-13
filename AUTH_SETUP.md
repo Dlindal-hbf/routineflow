@@ -70,7 +70,7 @@ Set production and preview values separately. Preview deployments should use a s
 1. Enable the Email provider and email/password signup. Enable **Confirm email**. Set the minimum password length to at least 12. Retain secure email change behavior.
 2. Disable new anonymous sign-ins. Existing anonymous identities are not deleted; retain them for the staged upgrade. Enable **Allow manual linking** while converting those identities.
 3. Under URL Configuration, set **Site URL** to the same origin as `APP_URL`.
-4. Add exact redirect URLs: `https://pbrflow.no/auth/confirm`, `https://pbrflow.no/auth/confirm?next=/reset-password`, and `https://pbrflow.no/reset-password`. For local tests add their `http://localhost:3100` equivalents. Avoid broad production wildcard redirects.
+4. Add exact redirect URLs: `https://pbrflow.no/auth/confirm` and `https://pbrflow.no/reset-password`. For local tests add their `http://localhost:3100` equivalents. Recovery requests use `/auth/confirm` without a nested query string; the callback recognizes `type=recovery` and routes to `/reset-password`. Avoid broad production wildcard redirects.
 5. Configure custom SMTP for Supabase authentication mail, with a verified sender. Supabase's default mail service is unsuitable for general production registration. This SMTP setup is separate from the application's Resend API configuration.
 6. Review Auth rate limits and password security settings. Apply per-IP Vercel Firewall rules to login/registration/recovery routes for your traffic profile. Do not enable a CAPTCHA requirement without wiring its challenge/token into the forms.
 
