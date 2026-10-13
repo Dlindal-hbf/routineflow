@@ -8,6 +8,20 @@ import { applicationOrigin, createAuthClient } from "./server";
 import { validateAuthForm } from "./validation";
 import type { AuthActionState, AuthMode } from "./types";
 
+function logAuthFailure(mode: AuthMode, error: unknown) {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; status?: unknown; name?: unknown };
+    console.error("[auth] request failed", {
+      mode,
+      code: typeof candidate.code === "string" ? candidate.code : undefined,
+      status: typeof candidate.status === "number" ? candidate.status : undefined,
+      name: typeof candidate.name === "string" ? candidate.name : undefined,
+    });
+    return;
+  }
+  console.error("[auth] request failed", { mode, code: "unknown_error" });
+}
+
 export async function authenticate(_previous: AuthActionState, form: FormData): Promise<AuthActionState> {
   const mode = form.get("mode") as AuthMode;
   if (!["login", "register", "forgot", "reset", "upgrade", "resend"].includes(mode)) return { error: "Ugyldig forespørsel." };
@@ -29,6 +43,7 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
         options: { data: { full_name: fullName }, emailRedirectTo: `${applicationOrigin()}/auth/confirm` },
       });
       if (error && !["user_already_exists", "email_exists"].includes(error.code ?? "")) {
+        logAuthFailure(mode, error);
         return { error: error.code === "weak_password" ? "Velg et sterkere passord med minst 12 tegn." : "Forespørselen kunne ikke sendes. Prøv igjen senere." };
       }
       if (!error && data.user?.identities?.length) {
@@ -40,10 +55,18 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
       // Do not expose whether Supabase returned an existing/obfuscated user.
       return { message: "Hvis adressen kan registreres, får du en e-post med en bekreftelseslenke. Deretter må en administrator godkjenne tilgangen. Har du allerede en konto, kan du logge inn eller tilbakestille passordet." };
     } else if (mode === "resend") {
-      await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${applicationOrigin()}/auth/confirm` } });
+      const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: `${applicationOrigin()}/auth/confirm` } });
+      if (error) {
+        logAuthFailure(mode, error);
+        return { error: "Bekreftelsesmeldingen kunne ikke sendes akkurat nå. Prøv igjen senere." };
+      }
       return { message: "Hvis kontoen venter på e-postbekreftelse, får du en ny lenke i innboksen." };
     } else if (mode === "forgot") {
-      await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${applicationOrigin()}/auth/confirm?next=/reset-password` });
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${applicationOrigin()}/auth/confirm?next=/reset-password` });
+      if (error) {
+        logAuthFailure(mode, error);
+        return { error: "Tilbakestillingsmeldingen kunne ikke sendes akkurat nå. Prøv igjen senere." };
+      }
       return { message: "Hvis adressen er registrert, får du en e-post med en lenke for å velge et nytt passord." };
     } else {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -61,7 +84,11 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
       await supabase.auth.signOut();
       destination = "/login?password=updated";
     }
-  } catch {
+  } catch (error) {
+    logAuthFailure(mode, error);
+    if (mode === "forgot" || mode === "register" || mode === "resend") {
+      return { error: "E-posttjenesten er midlertidig utilgjengelig. Kontroller e-postoppsettet og prøv igjen senere." };
+    }
     return { error: "Tjenesten er midlertidig utilgjengelig. Prøv igjen senere." };
   }
   if (destination) {
