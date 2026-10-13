@@ -22,6 +22,23 @@ function logAuthFailure(mode: AuthMode, error: unknown) {
   console.error("[auth] request failed", { mode, code: "unknown_error" });
 }
 
+function registrationErrorMessage(error: { code?: string | null; status?: number | null }) {
+  switch (error.code) {
+    case "weak_password":
+      return "Velg et sterkere passord med minst 12 tegn.";
+    case "signup_disabled":
+      return "Ny kontoregistrering er midlertidig deaktivert. Kontakt administrator.";
+    case "email_provider_disabled":
+      return "E-postinnlogging er ikke konfigurert i produksjon. Kontakt administrator.";
+    case "over_email_send_rate_limit":
+      return "For mange e-poster er sendt fra systemet. Vent litt og prøv igjen.";
+    case "validation_failed":
+      return "Kontroller e-postadressen og passordet, og prøv igjen.";
+    default:
+      return "Forespørselen kunne ikke sendes. Kontroller produksjonsoppsettet og prøv igjen senere.";
+  }
+}
+
 export async function authenticate(_previous: AuthActionState, form: FormData): Promise<AuthActionState> {
   const mode = form.get("mode") as AuthMode;
   if (!["login", "register", "forgot", "reset", "upgrade", "resend"].includes(mode)) return { error: "Ugyldig forespørsel." };
@@ -44,7 +61,7 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
       });
       if (error && !["user_already_exists", "email_exists"].includes(error.code ?? "")) {
         logAuthFailure(mode, error);
-        return { error: error.code === "weak_password" ? "Velg et sterkere passord med minst 12 tegn." : "Forespørselen kunne ikke sendes. Prøv igjen senere." };
+        return { error: registrationErrorMessage(error) };
       }
       if (!error && data.user?.identities?.length) {
         after(async () => {
@@ -86,6 +103,12 @@ export async function authenticate(_previous: AuthActionState, form: FormData): 
     }
   } catch (error) {
     logAuthFailure(mode, error);
+    if (mode === "register" && error instanceof Error && error.message === "APP_URL is required.") {
+      return { error: "Produksjonsadressen er ikke konfigurert. Kontakt administrator." };
+    }
+    if (mode === "register" && error instanceof Error && error.message === "APP_URL must use HTTPS outside localhost.") {
+      return { error: "Produksjonsadressen er feil konfigurert. Kontakt administrator." };
+    }
     if (mode === "forgot" || mode === "register" || mode === "resend") {
       return { error: "E-posttjenesten er midlertidig utilgjengelig. Kontroller e-postoppsettet og prøv igjen senere." };
     }
