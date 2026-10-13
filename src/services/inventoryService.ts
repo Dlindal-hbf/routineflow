@@ -616,7 +616,7 @@ async function upsertSnapshotMetadata(
   const rows = snapshots.map((snapshot) => {
     const existingRow = existingByAppId.get(snapshot.id);
     return {
-      id: existingRow?.id,
+      ...(existingRow ? { id: existingRow.id } : {}),
       user_id: userId,
       app_id: snapshot.id,
       inventory_type: inventoryType,
